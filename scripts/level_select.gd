@@ -143,6 +143,15 @@ func _bottom_bar() -> Control:
 	help.pressed.connect(_open_instructions)
 	bar.add_child(help)
 
+	var social := Button.new()
+	social.text = "Social"
+	social.focus_mode = Control.FOCUS_NONE
+	social.custom_minimum_size = Vector2(0, 84)
+	social.add_theme_font_size_override("font_size", 30)
+	social.add_theme_color_override("font_color", C_TEXT)
+	social.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/social/ProfileScreen.tscn"))
+	bar.add_child(social)
+
 	var editor := TextureButton.new()
 	editor.texture_normal = EDITOR
 	editor.ignore_texture_size = true

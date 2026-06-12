@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// All social data is accessed exclusively through the backend API (Admin SDK,
+// which bypasses these rules). Client SDKs get nothing — see
+// docs/social_backend_contract.md, "Security assumptions".
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

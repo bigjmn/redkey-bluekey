@@ -39,26 +39,48 @@ func _initialize() -> void:
 	_instr = Instructions.new()
 	root.add_child(_instr)
 
+var _async_done: bool = false
+
 func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames < 3:
 		return false
-	_t("game_boots_into_level", test_game_boots)
-	_t("editor_boots", test_editor_boots)
-	_t("editor_drag_paint", test_editor_drag_paint)
-	_t("level_select_builds", test_level_select)
-	_t("instructions_modal_pages", test_instructions)
+	if _frames == 3:
+		_t("game_boots_into_level", test_game_boots)
+		_t("editor_boots", test_editor_boots)
+		_t("editor_drag_paint", test_editor_drag_paint)
+		_t("level_select_builds", test_level_select)
+		_t("instructions_modal_pages", test_instructions)
+		_run_async_tests()   # social layer awaits frames; tallied when done
+	if not _async_done:
+		return false
 	print("\n========================================")
 	print("RENDER SMOKE: %d passed, %d failed" % [_passed, _failed])
 	print("========================================")
 	quit(1 if _failed > 0 else 0)
 	return true
 
+## Awaitable tests (the social mock API yields a frame per call).
+func _run_async_tests() -> void:
+	await _t_async("social_mock_flow", test_social_mock_flow)
+	await _t_async("social_screens_build", test_social_screens)
+	_async_done = true
+
 func _t(name: String, fn: Callable) -> void:
 	_current = name
 	var fail_before := _failed
 	var checks_before := _checks
 	fn.call()
+	_tally(name, fail_before, checks_before)
+
+func _t_async(name: String, fn: Callable) -> void:
+	_current = name
+	var fail_before := _failed
+	var checks_before := _checks
+	await fn.call()
+	_tally(name, fail_before, checks_before)
+
+func _tally(name: String, fail_before: int, checks_before: int) -> void:
 	if _checks == checks_before:
 		_failed += 1
 		print("  FAIL  %s (no assertions ran — aborted?)" % name)
@@ -170,6 +192,63 @@ func _cell_center(x: int, y: int) -> Vector2:
 	var idx: int = y * _editor._w + x
 	var b: Button = _editor._cell_buttons[idx]
 	return b.get_global_rect().get_center()
+
+# =============================================================================
+# Social layer (mock mode end-to-end: auth -> profile -> friends -> challenges)
+# =============================================================================
+func test_social_mock_flow() -> void:
+	var fs: Node = root.get_node_or_null("FirebaseSocial")
+	_check(fs != null, "FirebaseSocial autoload present")
+	if fs == null:
+		return
+	if not SocialConfig.USE_MOCK_API:
+		# Live mode: don't create real accounts from the test runner. Just sanity-
+		# check the wiring; flip USE_MOCK_API to re-enable the full offline flow.
+		_check(SocialConfig.API_BASE_URL.begins_with("https://"), "live API base URL configured")
+		print("    (mock mode off — live backend not exercised from tests)")
+		return
+	_check(await fs.ensure_signed_in(), "mock anonymous sign-in succeeds")
+	_check(fs.is_signed_in(), "auth state populated")
+	await fs.refresh_profile()
+	_check(str(fs.profile.get("friendCode", "")) != "", "profile carries a friend code")
+	await fs.set_display_name("Smoke Tester")
+	_check(fs.profile.get("displayName", "") == "Smoke Tester", "display name update round-trips")
+	await fs.refresh_friends()
+	_check(fs.friends.size() == 2, "mock backend has two friends")
+	_check(fs.friend_requests.size() == 1, "one pending friend request")
+	# Accept the incoming request -> friendship is created by the (mock) backend.
+	var rid: String = fs.friend_requests[0].get("id", "")
+	await fs.respond_to_friend_request(rid, true)
+	_check(fs.friends.size() == 3, "accepting a request adds a friend")
+	await fs.refresh_challenges()
+	_check(fs.incoming_challenges().size() == 1, "one incoming challenge")
+	_check(fs.outgoing_challenges().size() == 1, "one outgoing challenge")
+	var ch: Dictionary = fs.incoming_challenges()[0]
+	_check(LevelLoader.validate(str(ch.payload.get("layout", ""))) == "", "incoming challenge layout is playable")
+	# Accept then complete it; the client reports tries, backend decides winner.
+	await fs.respond_to_challenge(ch.id, true)
+	await fs.complete_challenge(ch.id, {tries = 2})
+	_check(fs.completed_challenges().size() == 1, "completing a challenge moves it to completed")
+	_check(await fs.post_level_to_profile({levelId = "smoke", layout = "", triesToBeat = 1}),
+		"posting a level to the profile succeeds")
+
+func test_social_screens() -> void:
+	if not SocialConfig.USE_MOCK_API:
+		_check(true, "skipped in live mode (screens would call the real backend)")
+		print("    (mock mode off — social screens not booted from tests)")
+		return
+	for path: String in [
+		"res://scenes/social/ProfileScreen.tscn",
+		"res://scenes/social/FriendsScreen.tscn",
+		"res://scenes/social/ChallengesScreen.tscn",
+	]:
+		var screen: Control = load(path).instantiate()
+		root.add_child(screen)
+		for _i: int in range(3):  # let _ready + the mock awaits settle
+			await process_frame
+		_check(screen.get_child_count() >= 2, "%s built its UI" % path.get_file())
+		_check(screen.content.get_child_count() >= 1, "%s populated content" % path.get_file())
+		screen.free()
 
 func test_switch_scene() -> void:
 	# Build a level with a switch + flip wall; render terrain, then toggle it.

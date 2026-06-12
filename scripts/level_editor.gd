@@ -371,11 +371,7 @@ func _do_playtest() -> void:
 	level.setup(board)
 	var vp := get_viewport().get_visible_rect().size
 	level.fit_to_rect(Rect2(vp.x * 0.05, vp.y * 0.12, vp.x * 0.9, vp.y * 0.72))
-	level.won.connect(func():
-		_do_save()
-		_set_status("Cleared! Saved. " + _status.text, C_ACCENT)
-		_stop_playtest()
-	)
+	level.won.connect(func(): _on_playtest_won(level))
 
 	var stop := Button.new()
 	stop.text = "Stop Playtest"
@@ -395,6 +391,101 @@ func _stop_playtest() -> void:
 		c.queue_free()
 	_play_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_edit_ui.visible = true
+
+# =============================================================================
+# Post-clear flow: dev mode keeps the original "beating it makes it a game
+# level" behaviour (gated by the SocialConfig.DEV_LEVELS_ENV environment
+# variable); otherwise the player can send the beaten level as a challenge to a
+# friend and/or post it to their profile.
+# =============================================================================
+func _on_playtest_won(level: Node2D) -> void:
+	var tries: int = level.attempts
+	if SocialConfig.dev_levels_mode():
+		_do_save()
+		_set_status("Cleared! Saved. " + _status.text, C_ACCENT)
+		_stop_playtest()
+		return
+	_stop_playtest()
+	_set_status("Cleared in %d %s!" % [tries, "try" if tries == 1 else "tries"], C_ACCENT)
+	_open_share_dialog(tries)
+
+var _share_dialog: Control = null
+var _share_pick: OptionButton = null
+
+## The challenge/post payload for the just-beaten board (contract shape).
+func _share_payload(tries: int) -> Dictionary:
+	var layout := _layout_string()
+	return {
+		levelId = _make_code(0, layout), seed = 0, scoreToBeat = 0,
+		triesToBeat = tries, layout = layout,
+	}
+
+func _open_share_dialog(tries: int) -> void:
+	_close_share_dialog()
+	_share_dialog = ColorRect.new()
+	_share_dialog.color = Color(0, 0, 0, 0.6)
+	_share_dialog.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_share_dialog)
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _flat(C_PANEL, 16))
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_share_dialog.add_child(panel)
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(480, 0)
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+
+	var head := Label.new()
+	head.text = "Level cleared in %d %s!" % [tries, "try" if tries == 1 else "tries"]
+	head.add_theme_color_override("font_color", C_ACCENT)
+	head.add_theme_font_size_override("font_size", 30)
+	box.add_child(head)
+
+	_share_pick = OptionButton.new()
+	_share_pick.custom_minimum_size = Vector2(0, 56)
+	_share_pick.focus_mode = Control.FOCUS_NONE
+	_share_pick.add_theme_font_size_override("font_size", 22)
+	box.add_child(_share_pick)
+	FirebaseSocial.friends_loaded.connect(_on_share_friends)
+	FirebaseSocial.refresh_friends()
+
+	var payload := _share_payload(tries)
+	_mk_button(box, "Send as Challenge", func(): _share_challenge(payload))
+	_mk_button(box, "Post to Profile", func(): _share_post(payload))
+	_mk_button(box, "Done", _close_share_dialog)
+
+func _on_share_friends(friends: Array) -> void:
+	if _share_pick == null:
+		return
+	_share_pick.clear()
+	for f: Dictionary in friends:
+		_share_pick.add_item(str(f.get("displayName", "?")))
+
+func _share_challenge(payload: Dictionary) -> void:
+	var idx := _share_pick.selected
+	if idx < 0 or idx >= FirebaseSocial.friends.size():
+		_set_status("Pick a friend first", C_WARN)
+		return
+	var friend: Dictionary = FirebaseSocial.friends[idx]
+	var ok: bool = await FirebaseSocial.create_challenge(friend.get("uid", ""), payload)
+	_set_status("Challenge sent to %s!" % friend.get("displayName", "?") if ok else "Challenge failed", C_ACCENT if ok else C_WARN)
+	if ok:
+		_close_share_dialog()
+
+func _share_post(payload: Dictionary) -> void:
+	var ok: bool = await FirebaseSocial.post_level_to_profile(payload)
+	_set_status("Posted to your profile!" if ok else "Post failed", C_ACCENT if ok else C_WARN)
+	if ok:
+		_close_share_dialog()
+
+func _close_share_dialog() -> void:
+	if FirebaseSocial.friends_loaded.is_connected(_on_share_friends):
+		FirebaseSocial.friends_loaded.disconnect(_on_share_friends)
+	if _share_dialog != null:
+		_share_dialog.queue_free()
+		_share_dialog = null
+	_share_pick = null
 
 func _go_back() -> void:
 	get_tree().change_scene_to_file("res://scenes/level_select.tscn")

@@ -1,3 +1,8 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Local Firebase web app key (copy social_keys.json.example) — not in VCS.
+social_keys.json
+# Backend node deps
+backend/functions/node_modules/

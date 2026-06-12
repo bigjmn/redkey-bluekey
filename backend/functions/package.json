@@ -1,0 +1,14 @@
+{
+  "name": "redkey-bluekey-social",
+  "description": "Social backend for the redkey-bluekey puzzle game (profiles, friends, challenges)",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.2"
+  },
+  "private": true
+}

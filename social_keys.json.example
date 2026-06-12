@@ -1,0 +1,3 @@
+{
+  "firebase_api_key": "PASTE THE puzzle-game WEB APP apiKey HERE (npx firebase-tools apps:sdkconfig WEB --project redkey-bluekey), THEN SAVE AS social_keys.json"
+}
