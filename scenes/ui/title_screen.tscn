@@ -1,0 +1,45 @@
+[gd_scene format=3 uid="uid://datunqorobaxl"]
+
+[ext_resource type="Texture2D" uid="uid://ddxfu8fg7rune" path="res://assets/fancyredkey.png" id="1_eb34j"]
+[ext_resource type="PackedScene" uid="uid://douda8euh73ks" path="res://scenes/ui/screen_button.tscn" id="2_w8uqo"]
+[ext_resource type="Texture2D" uid="uid://bmqkse57kpm6m" path="res://assets/todayspuzzlebutton.png" id="3_a4ium"]
+
+[node name="TitleScreen" type="Control" unique_id=1358920661]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Logo" type="TextureRect" parent="." unique_id=513059689]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -249.0
+offset_top = -489.0
+offset_right = 249.0
+offset_bottom = 9.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_eb34j")
+expand_mode = 1
+
+[node name="Play" parent="." unique_id=668690988 instance=ExtResource("2_w8uqo")]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -211.0
+offset_top = -114.0
+offset_right = 698.0
+offset_bottom = 274.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(0.5, 0.5)
+texture_normal = ExtResource("3_a4ium")

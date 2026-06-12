@@ -1,0 +1,437 @@
+# =============================================================================
+# FEATURE JOB: Acno's Energizer — mobile recreation in Godot 4
+# -----------------------------------------------------------------------------
+# Recreates the MECHANICS of the 2000 Uselab/Miniclip puzzle game: a grid where
+# you move one tile at a time, push red orbs into a teleporter before a timer
+# expires, dig dirt, and use gravity (rocks/orbs fall when unsupported) to crush
+# enemies. Target: portrait-friendly mobile, built in Godot 4 via the Godot MCP.
+#
+# IP NOTE: implement behavior only. Use ORIGINAL or placeholder art and an
+# original title for any distribution — do not copy the game's sprites, sounds,
+# proprietary level data, or trademarked name. The example layouts below are
+# original illustrations, not the original 35 levels.
+#
+# Implementation surface: use the Godot MCP for everything structural — create
+# scenes/nodes, attach scripts, edit project settings, and RUN the project to
+# verify behavior. Don't hand-write .tscn/.godot files when an MCP call can do it.
+# =============================================================================
+
+feature:
+  name: "acno-energizer-mobile"
+  summary: >
+    A tile-based puzzle game: maneuver Acno around each room, push every red
+    energy orb into the teleporter before time runs out, then step in to clear
+    the level. Dig dirt, push and drop rocks/barrels, crush enemies with falling
+    objects, and unlock doors with keys.
+  acceptance:
+    - Acno moves one tile per input on a grid, with smooth tweened motion.
+    - Orbs and rocks are pushable one tile and fall when the tile below is empty.
+    - A level is won when all orbs are delivered and Acno enters the active teleporter.
+    - A level is lost on timer expiry, enemy contact, or being crushed by a falling object.
+    - Levels load from a data format keyed by a level code; a starter set is playable.
+    - Fully playable with touch: swipe to move, on-screen dig/undo/restart.
+
+# -----------------------------------------------------------------------------
+# STACK / CONTEXT
+# -----------------------------------------------------------------------------
+stack:
+  language: gdscript
+  framework: godot4                        # Godot 4.x, Mobile renderer
+  test_framework: gdUnit4                  # or GUT — adjust testing.command to match
+  target: mobile                           # portrait; touch-first; responsive grid scaling
+  # tooling: implement via the Godot MCP (scenes, nodes, scripts, project settings, run-to-verify)
+
+# -----------------------------------------------------------------------------
+# WORKTREE
+# -----------------------------------------------------------------------------
+worktree:
+  enabled: true
+  branch_prefix: "feature/"
+
+# -----------------------------------------------------------------------------
+# SCOPE — Godot project layout doubles as the safety rail.
+# -----------------------------------------------------------------------------
+scope:
+  work_dirs:
+    - scenes
+    - scripts
+    - levels                               # level data resources
+    - assets                               # placeholder art/audio only
+  reference_only:
+    - addons/**                            # third-party addons (e.g. gdUnit4)
+  do_not_modify:
+    - ".godot/**"                          # editor cache
+    - "export_presets.cfg"                 # signing / store config
+    - "**/*.import"                         # generated import metadata
+  allow_create: true
+
+# -----------------------------------------------------------------------------
+# CONVENTIONS — durable Godot rules (one scene per system, signals over polling,
+# typed GDScript, snake_case files) belong in CLAUDE.md / the file below.
+# -----------------------------------------------------------------------------
+conventions:
+  - docs/conventions/godot.md
+  - docs/conventions/testing.md
+
+# -----------------------------------------------------------------------------
+# DEFAULTS
+# -----------------------------------------------------------------------------
+defaults:
+  skip_testing: false
+  constants_target: "scripts/autoload/tuning.gd"   # a `Tuning` autoload singleton
+  comment_density: normal
+
+# =============================================================================
+# 1. CONSTANTS — tunables you'll want to feel out by hand.
+# =============================================================================
+constants:
+  - name: TILE_SIZE
+    value: 64
+    type: int
+    unit: "px (logical)"
+    description: "Grid cell size before responsive scaling."
+
+  - name: STEP_DURATION
+    value: 0.12
+    type: float
+    unit: "sec"
+    description: "Tween time for one tile of movement/push."
+
+  - name: FALL_DURATION
+    value: 0.08
+    type: float
+    unit: "sec/tile"
+    description: "Per-tile fall speed for rocks and orbs."
+
+  - name: ENEMY_STEP_INTERVAL
+    value: 0.5
+    type: float
+    unit: "sec"
+    description: "How often enemies advance one tile."
+
+  - name: DEFAULT_LEVEL_TIME
+    value: 120
+    type: int
+    unit: "sec"
+    description: "Fallback timer if a level doesn't specify one."
+
+  - name: EXPLOSION_RADIUS
+    value: 1
+    type: int
+    unit: "tiles"
+    description: "Square radius cleared by a detonating barrel (1 = 3x3)."
+
+  - name: STARTING_LIVES
+    value: 3
+    type: int
+    description: "Lives before game over."
+
+  - name: SWIPE_THRESHOLD
+    value: 24
+    type: int
+    unit: "px"
+    description: "Minimum swipe distance to register a move."
+
+# =============================================================================
+# 2. DEV TOGGLES — live while building, frozen in shipped builds.
+# =============================================================================
+dev_mode:
+  gate: "OS.is_debug_build()"
+
+dev_toggles:
+  - name: INVINCIBLE
+    description: "Acno ignores enemy contact and crushing."
+    dev_default: true
+    prod_value: false
+
+  - name: INFINITE_TIME
+    description: "Disable the countdown while designing levels."
+    dev_default: false
+    prod_value: false
+
+  - name: UNLOCK_ALL_LEVELS
+    description: "Open every level in the level-select without codes."
+    dev_default: true
+    prod_value: false
+
+  - name: START_LEVEL
+    description: "Which level id to boot straight into."
+    dev_default: 1
+    prod_value: 1
+
+  - name: SHOW_GRID_OVERLAY
+    description: "Draw tile gridlines and coordinates."
+    dev_default: true
+    prod_value: false
+
+  - name: SHOW_ENEMY_INTENT
+    description: "Render each enemy's next-move arrow."
+    dev_default: true
+    prod_value: false
+
+# =============================================================================
+# 3a. COLLECTION: tile_types — the cell vocabulary. Shared shape + per-tile rules.
+# -----------------------------------------------------------------------------
+# Represent the board as a 2D grid of these. `falls` means it obeys gravity;
+# `deadly` means contact kills Acno. ASCII legend used by levels below is in
+# each item's `glyph`.
+# =============================================================================
+collections:
+  - name: tile_types
+    description: "Every kind of cell on the board."
+    target: "scripts/grid/tile_types.gd"
+    fields:
+      - { name: id,       type: string,  required: true }
+      - { name: glyph,    type: string,  required: true }   # ASCII char for level layouts
+      - { name: walkable, type: bool,    default: false }
+      - { name: pushable, type: bool,    default: false }
+      - { name: falls,    type: bool,    default: false }
+      - { name: diggable, type: bool,    default: false }
+      - { name: deadly,   type: bool,    default: false }
+    shared_behavior: |
+      Tiles are data, not nodes; the board renders them. Movement, pushing, and
+      gravity all consult these flags. A tile may hold at most one movable
+      occupant (rock/orb/barrel/enemy) above an empty floor.
+    items:
+      - id: empty
+        glyph: "."
+        walkable: true
+
+      - id: wall
+        glyph: "#"
+        # immovable boundary/obstacle. Nothing passes or falls through it.
+
+      - id: dirt
+        glyph: "D"
+        walkable: true
+        diggable: true
+        logic: |
+          Walking into dirt clears it and moves Acno onto the now-empty tile.
+          Can also be shaved in place via the dig action without moving.
+
+      - id: rock
+        glyph: "R"
+        pushable: true
+        falls: true
+        logic: |
+          Pushed one tile if the cell beyond is empty. Falls straight down when
+          unsupported. A falling rock kills any enemy or Acno it lands on and
+          detonates a barrel it lands on.
+
+      - id: orb
+        glyph: "O"
+        pushable: true
+        falls: true
+        logic: |
+          Same physics as a rock. When it enters an ACTIVE teleporter it is
+          consumed and counts toward the win. Losing an orb (e.g. destroyed by
+          an explosion) should make the level unwinnable -> offer restart.
+
+      - id: barrel
+        glyph: "X"
+        pushable: true
+        falls: true
+        logic: |
+          Detonates when struck by a falling/pushed object or by an adjacent
+          explosion (chain reaction). Clears destructible tiles (dirt, rocks)
+          and kills enemies within EXPLOSION_RADIUS. Never auto-detonate; only
+          on impact. Warn the implementer: blasts near a teleporter can wall it.
+
+      - id: teleporter
+        glyph: "T"
+        logic: |
+          Inert until every orb on the level is delivered, then ACTIVE. Acno
+          stepping onto an active teleporter completes the level.
+
+      - id: key
+        glyph: "K"
+        walkable: true
+        logic: "Walking over it collects it; increments the key count."
+
+      - id: door
+        glyph: "L"
+        logic: "Blocks movement until a key is spent to open it (consumes one key)."
+
+      - id: acno_start
+        glyph: "A"
+        walkable: true
+        logic: "Marks Acno's spawn; treated as empty floor after load."
+
+# =============================================================================
+# 3b. COLLECTION: enemies — shared movement contract + per-enemy pattern.
+# =============================================================================
+  - name: enemies
+    description: "Hazards that kill Acno on contact and can be crushed."
+    target: "scripts/entities/enemies.gd"
+    fields:
+      - { name: id,       type: string, required: true }
+      - { name: glyph,    type: string, required: true }
+      - { name: pattern,  type: string, required: true }   # how it chooses its next tile
+      - { name: speed_mult, type: float, default: 1.0 }     # x ENEMY_STEP_INTERVAL
+    shared_behavior: |
+      Enemies step on the ENEMY_STEP_INTERVAL tick (scaled by speed_mult). Touching
+      Acno kills him (unless INVINCIBLE). Any enemy is killed by a falling/pushed
+      rock or barrel and by explosions. Enemies never push objects or dig.
+    items:
+      - id: bug
+        glyph: "b"
+        pattern: "wall_follower"
+        logic: "Follows the right-hand wall around the room (deterministic, loopable)."
+
+      - id: bee
+        glyph: "e"
+        pattern: "vertical_bounce"
+        speed_mult: 1.2
+        logic: "Moves up/down in its column, reversing at walls/obstacles."
+
+      - id: spider
+        glyph: "s"
+        pattern: "horizontal_patrol"
+        logic: "Paces left/right along its row, reversing at walls/obstacles."
+
+# =============================================================================
+# 3c. COLLECTION: levels — starter content. Full set authored via the editor.
+# -----------------------------------------------------------------------------
+# `layout` is an ASCII grid using the tile/enemy glyphs above. `code` is the
+# level-select password. These two are ORIGINAL examples for bring-up — author
+# the remaining levels with the editor (subtask: level-editor).
+# =============================================================================
+  - name: levels
+    description: "Playable level data."
+    target: "levels/"
+    fields:
+      - { name: id,         type: int,    required: true }
+      - { name: code,       type: string, required: true }
+      - { name: time_limit, type: int,    default: 120 }    # seconds; falls back to DEFAULT_LEVEL_TIME
+      - { name: layout,     type: string, required: true }  # ASCII grid
+    shared_behavior: |
+      Store each level as a Godot Resource (.tres) parsed from this layout. The
+      loader maps glyphs -> tile_types/enemies and places Acno at 'A'. Validate
+      on load: exactly one 'A', at least one 'T', orb count >= 1.
+    items:
+      - id: 1
+        code: "TUTOR01PUSH"
+        time_limit: 60
+        layout: |
+          ##########
+          #A...O..T#
+          ##########
+        # Teaches: push the orb right into the teleporter, then follow it in.
+
+      - id: 2
+        code: "TUTOR02DROP"
+        time_limit: 90
+        layout: |
+          ##########
+          #..R.....#
+          #..D.....#
+          #A..O...T#
+          ##########
+        # Teaches: dig the dirt so the rock falls clear, then deliver the orb.
+
+      - id: 3
+        code: "TUTOR03CRUSH"
+        time_limit: 90
+        layout: |
+          ############
+          #....R.....#
+          #....D.....#
+          #A.b....O.T#
+          ############
+        # Teaches: drop the rock on the bug, then push the orb home.
+
+# =============================================================================
+# SUBTASKS — ordered build. Logic is tested; rendering/IO/config is skipped with
+# a reason (assert the rules, not the pixels).
+# =============================================================================
+subtasks:
+  - id: project-setup
+    description: >
+      Create the Godot 4 mobile project via the MCP: Mobile renderer, portrait
+      orientation, stretch mode canvas_items. Register autoloads (Tuning,
+      GameState). Set up the test addon.
+    depends_on: []
+    skip_testing: true
+    skip_reason: "Project/editor configuration; verified by the project running, not unit tests."
+
+  - id: grid-core
+    description: "Board data model, coordinates, and the tile_types collection. Render board from a layout."
+    depends_on: [project-setup]
+
+  - id: player-movement
+    description: "Acno grid-step movement (tweened over STEP_DURATION), dirt digging on entry, and a stationary dig action."
+    depends_on: [grid-core]
+
+  - id: push-mechanic
+    description: "Push rock/orb/barrel one tile when the cell beyond is empty; no pulling."
+    depends_on: [player-movement]
+
+  - id: gravity
+    description: "Falling system: unsupported rocks/orbs/barrels fall over FALL_DURATION; landing crushes Acno/enemies; resolve settle order deterministically."
+    depends_on: [push-mechanic]
+
+  - id: enemies
+    description: "enemies collection: per-pattern movement on the step tick, contact-kills-Acno, killable by falls/explosions."
+    depends_on: [gravity]
+
+  - id: barrels
+    description: "Barrel detonation on impact, area clear within EXPLOSION_RADIUS, and chain reactions."
+    depends_on: [gravity]
+
+  - id: keys-doors
+    description: "Key pickup and door opening (one key per door)."
+    depends_on: [player-movement]
+
+  - id: win-lose-timer
+    description: >
+      Orb delivery + teleporter activation + Acno-enters-to-win; countdown timer
+      (honors INFINITE_TIME); lives (STARTING_LIVES); lose on timeout/contact/crush;
+      restart and game-over flow.
+    depends_on: [enemies, barrels, keys-doors]
+
+  - id: level-data
+    description: "levels collection: ASCII->Resource loader, validation, and the level-code select system. Load the starter levels."
+    depends_on: [grid-core]
+
+  - id: mobile-controls
+    description: >
+      Swipe-to-move (4-direction, SWIPE_THRESHOLD), on-screen dig/undo/restart
+      buttons, and responsive grid scaling to fit portrait viewports.
+    depends_on: [player-movement]
+    skip_testing: true
+    skip_reason: "Touch/gesture integration; unit-test only the swipe-vector->direction mapping, not live input."
+
+  - id: hud-ui
+    description: "HUD (time, orbs remaining, lives, level code), level-complete and game-over screens, and code-entry level select."
+    depends_on: [win-lose-timer, level-data]
+    skip_testing: true
+    skip_reason: "Presentation layer; covered by the logic subtasks it displays."
+
+  - id: level-editor
+    description: >
+      Place any tile/enemy, set the time limit, playtest, and on a successful
+      clear save the level + emit its code. Lower priority — consider splitting
+      into its own job file.
+    depends_on: [level-data, win-lose-timer]
+    skip_testing: true
+    skip_reason: "Editor UX; validate the save/serialize roundtrip in level-data instead."
+
+# =============================================================================
+# TESTING — focus on the deterministic rules engine.
+# =============================================================================
+testing:
+  skip: false
+  command: "godot --headless --path . -s res://test/run_tests.gd"   # adjust to gdUnit4/GUT runner
+  scope: changed
+  notes: >
+    Test the headless logic layer: a fixed ASCII board + a move sequence should
+    produce a known resulting board (push, fall, crush, deliver, detonate, win,
+    lose). Assert prod_value behavior — never against INVINCIBLE/INFINITE_TIME
+    dev defaults. Run via the Godot MCP in headless mode.
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+output:
+  summary_doc: "docs/<feature-name>-OUT.md"
+  on_rerun: append                         # keep a per-run log as the game comes together
