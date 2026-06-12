@@ -18,6 +18,7 @@ var _current: String = ""
 var _game: Node = null
 var _editor: Node = null
 var _select: Node = null
+var _title: Node = null
 var _instr: Node = null
 var _frames: int = 0
 
@@ -36,6 +37,8 @@ func _initialize() -> void:
 	root.add_child(_editor)
 	_select = load("res://scenes/level_select.tscn").instantiate()
 	root.add_child(_select)
+	_title = load("res://scenes/title_screen.tscn").instantiate()
+	root.add_child(_title)
 	_instr = Instructions.new()
 	root.add_child(_instr)
 
@@ -50,6 +53,7 @@ func _process(_delta: float) -> bool:
 		_t("editor_boots", test_editor_boots)
 		_t("editor_drag_paint", test_editor_drag_paint)
 		_t("level_select_builds", test_level_select)
+		_t("title_screen_builds", test_title_screen)
 		_t("instructions_modal_pages", test_instructions)
 		_run_async_tests()   # social layer awaits frames; tallied when done
 	if not _async_done:
@@ -124,6 +128,11 @@ func test_progress() -> void:
 func test_level_select() -> void:
 	_check(_select.get_child_count() >= 2, "selector built its UI")
 	_check(_count_texture_buttons(_select) >= 12, "selector populated a grid of level buttons")
+
+func test_title_screen() -> void:
+	_check(_title.get_child_count() >= 2, "title screen built its UI")
+	# Play / Rules / Social / Level Editor image buttons.
+	_check(_count_texture_buttons(_title) == 4, "title screen has the four menu buttons")
 
 func test_instructions() -> void:
 	# _ready built the first page; page forward/back through the deck.

@@ -127,7 +127,7 @@ func _bottom_bar() -> Control:
 	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(96, 84)
 	back.add_theme_font_size_override("font_size", 40)
-	back.pressed.connect(func(): get_tree().quit())
+	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
 	bar.add_child(back)
 
 	var spacer := Control.new()

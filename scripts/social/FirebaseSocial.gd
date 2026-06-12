@@ -54,7 +54,7 @@ func ensure_signed_in() -> bool:
 	if SocialConfig.USE_MOCK_API:
 		if auth.is_empty():
 			auth = {uid = "mock-uid-1", idToken = "mock-token", refreshToken = "mock-refresh",
-				expiresAt = Time.get_unix_time_from_system() + 3600.0}
+				expiresAt = Time.get_unix_time_from_system() + 3600.0, mock = true}
 			_save_auth()
 			auth_changed.emit(auth)
 		return true
@@ -71,6 +71,7 @@ func ensure_signed_in() -> bool:
 		idToken = res.data.get("idToken", ""),
 		refreshToken = res.data.get("refreshToken", ""),
 		expiresAt = Time.get_unix_time_from_system() + float(res.data.get("expiresIn", "3600")),
+		mock = false,
 	}
 	_save_auth()
 	auth_changed.emit(auth)
@@ -93,6 +94,13 @@ func _get_valid_token() -> String:
 		SocialConfig.AUTH_REFRESH_URL % SocialConfig.firebase_api_key(),
 		body, "", "application/x-www-form-urlencoded")
 	if not res.ok or not (res.data is Dictionary):
+		# A 4xx means the refresh token itself is invalid/revoked (e.g. stale
+		# state from another mode) — unrecoverable, so start a fresh anonymous
+		# account. Network blips (status 0/5xx) keep the tokens for retry.
+		if res.status >= 400 and res.status < 500:
+			_clear_auth()
+			if await ensure_signed_in():
+				return auth.idToken
 		social_error.emit("Token refresh failed: %s" % res.error)
 		return ""
 	auth.idToken = res.data.get("id_token", "")
@@ -110,9 +118,23 @@ func _load_auth() -> void:
 	if f == null:
 		return
 	var data: Variant = JSON.parse_string(f.get_as_text())
-	if data is Dictionary and data.has("refreshToken"):
-		auth = data
-		auth_changed.emit(auth)
+	if not (data is Dictionary and data.has("refreshToken")):
+		return
+	# Discard state saved under the other mode: mock tokens poison real refresh
+	# calls (and vice versa). Old mock-era files lack the flag, so also sniff
+	# the fixture uid.
+	var was_mock: bool = bool(data.get("mock", false)) or str(data.get("uid", "")).begins_with("mock-")
+	if was_mock != SocialConfig.USE_MOCK_API:
+		_clear_auth()
+		return
+	auth = data
+	auth_changed.emit(auth)
+
+## Forget the persisted account (used when its refresh token is unrecoverable).
+func _clear_auth() -> void:
+	auth = {}
+	if FileAccess.file_exists(SocialConfig.AUTH_SAVE_PATH):
+		DirAccess.remove_absolute(SocialConfig.AUTH_SAVE_PATH)
 
 func _save_auth() -> void:
 	var f := FileAccess.open(SocialConfig.AUTH_SAVE_PATH, FileAccess.WRITE)
