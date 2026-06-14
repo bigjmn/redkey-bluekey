@@ -6,6 +6,8 @@ extends Node
 
 const LevelScene := preload("res://scenes/levels/level.tscn")
 const DUNGEON_BG := preload("res://assets/dungeonbackground.png")
+const KEY_RED := preload("res://assets/redkey.png")
+const KEY_BLUE := preload("res://assets/bluekey.png")
 
 # Palette (matches the renderer's earthy/retro scheme).
 const C_PANEL := Color("0f1f17")
@@ -19,9 +21,14 @@ var _level: Node2D = null
 var _hud_root: Control
 var _overlay_root: Control
 
-var _lbl_keys_left: Label
-var _lbl_code: Label
-var _btn_switch: Button   ## contextual — shown only when Francis Scott can toggle a switch
+var _lbl_title: Label      ## "Level 8"  or  "<id> (Challenger)"
+var _key_red: TextureRect
+var _key_blue: TextureRect
+var _lbl_attempts: Label
+var _btn_switch: Button     ## contextual — shown only when Francis Scott can toggle a switch
+
+## The friend's challenge being played ({} = a regular level).
+var _challenge: Dictionary = {}
 
 func _ready() -> void:
 	_build_background()
@@ -35,7 +42,13 @@ func _ready() -> void:
 	# class registry is fully available.
 	if GameState.level_count() == 0:
 		GameState.reload_levels()
-	# Play the level chosen on the selector screen.
+	# Consume the challenge context (if any) so it can't leak into a later regular run.
+	var challenge: Dictionary = GameState.active_challenge
+	GameState.active_challenge = {}
+	if not challenge.is_empty():
+		load_challenge(challenge)
+		return
+	# Otherwise play the level chosen on the selector screen.
 	var start := GameState.current_level()
 	if start != null:
 		load_level(start)
@@ -46,6 +59,7 @@ func _ready() -> void:
 # Level lifecycle
 # =============================================================================
 func load_level(level: LevelData) -> void:
+	_challenge = {}
 	GameState.select(level)
 	_clear_overlay()
 	if _level != null:
@@ -68,6 +82,41 @@ func load_level(level: LevelData) -> void:
 	_relayout()
 	_refresh_hud()
 
+## Play a friend's challenge: build the board from its layout and report the
+## result back to the backend on a clear (the server decides the winner).
+func load_challenge(challenge: Dictionary) -> void:
+	_challenge = challenge
+	_clear_overlay()
+	if _level != null:
+		_level.queue_free()
+		_level = null
+	var layout: String = str(challenge.get("payload", {}).get("layout", ""))
+	if LevelLoader.validate(layout) != "":
+		_show_message("Invalid challenge", "This challenge level can't be loaded.",
+			[{text = "Back", cb = _go_to_challenges}])
+		return
+	var board := Board.from_ascii(layout)
+	board.invincible = Tuning.invincible
+
+	_level = LevelScene.instantiate()
+	_playfield.add_child(_level)
+	_level.setup(board)
+	_level.state_changed.connect(_refresh_hud)
+	_level.won.connect(_on_challenge_won)
+	_level.lost.connect(_on_lost)
+	_level.became_unwinnable.connect(_on_unwinnable)
+	_relayout()
+	_refresh_hud()
+
+func _on_challenge_won() -> void:
+	var tries: int = _level.attempts
+	FirebaseSocial.complete_challenge(str(_challenge.get("id", "")), {tries = tries})
+	var word := "try" if tries == 1 else "tries"
+	_show_message("Challenge complete!",
+		"You cleared %s's challenge in %d %s!" % [_challenge.get("fromDisplayName", "a friend"), tries, word], [
+		{text = "Back to Challenges", cb = _go_to_challenges},
+	])
+
 func _on_won() -> void:
 	GameState.mark_cleared(GameState.current_level())   # unlocks the next level + saves
 	var tries: int = _level.attempts
@@ -84,7 +133,7 @@ func _on_lost(reason: String) -> void:
 	])
 
 func _on_unwinnable() -> void:
-	_show_message("Stuck!", "A teleporter key was destroyed — the level can't be finished.", [
+	_show_message("Stuck!", "A gate key was destroyed — the level can't be finished.", [
 		{text = "Restart", cb = _retry},
 		{text = "Levels", cb = _go_to_select},
 	])
@@ -103,7 +152,12 @@ func _death_text(reason: String) -> String:
 		_: return "Francis Scott didn't make it. Give it another go!"
 
 func _go_to_select() -> void:
+	GameState.active_challenge = {}
 	get_tree().change_scene_to_file("res://scenes/level_select.tscn")
+
+func _go_to_challenges() -> void:
+	GameState.active_challenge = {}
+	get_tree().change_scene_to_file("res://scenes/social/ChallengesScreen.tscn")
 
 # =============================================================================
 # Layout
@@ -115,8 +169,8 @@ func _relayout() -> void:
 	if _level == null:
 		return
 	var vp := _viewport_size()
-	var top := vp.y * 0.11
-	var bottom := vp.y * 0.20
+	var top := vp.y * 0.17     # two stacked HUD rows (level title + key/attempt/restart)
+	var bottom := vp.y * 0.14  # contextual Switch button below the grid
 	var pad := vp.x * 0.03
 	var rect := Rect2(pad, top + pad, vp.x - pad * 2.0, vp.y - top - bottom - pad * 2.0)
 	_level.fit_to_rect(rect)
@@ -145,63 +199,117 @@ func _build_hud() -> void:
 	_hud_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_hud_root)
 
-	# Top status bar.
-	var bar := PanelContainer.new()
-	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	bar.add_theme_stylebox_override("panel", _flat_style(C_BAR))
-	_hud_root.add_child(bar)
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 18)
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	bar.add_child(hbox)
-	_lbl_keys_left = _stat_label(hbox, "Keys 0/2")
-	_lbl_code = _stat_label(hbox, "")
+	# Two stacked rows anchored to the top of the screen.
+	var top_box := VBoxContainer.new()
+	top_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top_box.add_theme_constant_override("separation", 4)
+	_hud_root.add_child(top_box)
+	top_box.add_child(_build_title_row())
+	top_box.add_child(_build_status_row())
 
-	# Bottom control pad.
-	var pad := HBoxContainer.new()
-	pad.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	pad.offset_top = -_viewport_size().y * 0.17
-	pad.alignment = BoxContainer.ALIGNMENT_CENTER
-	pad.add_theme_constant_override("separation", 14)
-	_hud_root.add_child(pad)
-	_btn_switch = _pad_button(pad, "Switch", func(): if _level: _level.request_switch())
+	# Contextual Switch button, centred in the band below the grid.
+	var sw := CenterContainer.new()
+	sw.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	sw.offset_top = -_viewport_size().y * 0.13
+	sw.offset_bottom = -_viewport_size().y * 0.02
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud_root.add_child(sw)
+	_btn_switch = _bar_button("Switch", func(): if _level: _level.request_switch())
+	_btn_switch.custom_minimum_size = Vector2(220, 88)
 	_btn_switch.add_theme_stylebox_override("normal", _flat_style(C_ACCENT.darkened(0.2), 12))
 	_btn_switch.visible = false
-	_pad_button(pad, "Restart", _retry)
-	_pad_button(pad, "Levels", _go_to_select)
+	sw.add_child(_btn_switch)
 
-func _stat_label(parent: Control, text: String) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_color_override("font_color", C_TEXT)
-	l.add_theme_font_size_override("font_size", 30)
-	parent.add_child(l)
-	return l
+## Top row: back button (left) + centred level title.
+func _build_title_row() -> Control:
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", _flat_style(C_BAR))
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	bar.add_child(hbox)
+	hbox.add_child(_bar_button("←", _go_to_select))
+	_lbl_title = Label.new()
+	_lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_title.add_theme_color_override("font_color", C_TEXT)
+	_lbl_title.add_theme_font_size_override("font_size", 34)
+	hbox.add_child(_lbl_title)
+	var spacer := Control.new()    # mirrors the back button width so the title stays centred
+	spacer.custom_minimum_size = Vector2(108, 0)
+	hbox.add_child(spacer)
+	return bar
 
-func _pad_button(parent: Control, text: String, cb: Callable) -> Button:
+## Second row: collected keys (left), attempt number (centre), restart (right).
+func _build_status_row() -> Control:
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", _flat_style(C_BAR.lightened(0.05)))
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	bar.add_child(hbox)
+
+	var keys := HBoxContainer.new()
+	keys.add_theme_constant_override("separation", 6)
+	_key_red = _key_icon(KEY_RED)
+	_key_blue = _key_icon(KEY_BLUE)
+	keys.add_child(_key_red)
+	keys.add_child(_key_blue)
+	hbox.add_child(keys)
+
+	hbox.add_child(_expand_spacer())
+	_lbl_attempts = Label.new()
+	_lbl_attempts.add_theme_color_override("font_color", C_TEXT)
+	_lbl_attempts.add_theme_font_size_override("font_size", 30)
+	hbox.add_child(_lbl_attempts)
+	hbox.add_child(_expand_spacer())
+
+	hbox.add_child(_bar_button("Restart", _retry))
+	return bar
+
+func _key_icon(tex: Texture2D) -> TextureRect:
+	var t := TextureRect.new()
+	t.texture = tex
+	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	t.custom_minimum_size = Vector2(54, 54)
+	return t
+
+func _expand_spacer() -> Control:
+	var s := Control.new()
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return s
+
+func _bar_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE  # don't let arrow keys drive UI focus instead of the game
 	b.text = text
-	b.custom_minimum_size = Vector2(150, 96)
+	b.custom_minimum_size = Vector2(108, 76)
 	b.add_theme_font_size_override("font_size", 30)
 	b.add_theme_color_override("font_color", C_TEXT)
 	b.add_theme_stylebox_override("normal", _flat_style(C_BTN, 12))
 	b.add_theme_stylebox_override("hover", _flat_style(C_BTN.lightened(0.1), 12))
 	b.add_theme_stylebox_override("pressed", _flat_style(C_ACCENT.darkened(0.3), 12))
 	b.pressed.connect(cb)
-	parent.add_child(b)
 	return b
+
+## "Level 8" for a regular level, or "<id> (Challenger)" for a friend's challenge.
+func _level_title() -> String:
+	if not _challenge.is_empty():
+		var lid: String = str(_challenge.get("payload", {}).get("levelId", ""))
+		if lid == "" or lid == "placeholder":
+			lid = "Challenge"
+		return "%s (%s)" % [lid, _challenge.get("fromDisplayName", "a friend")]
+	var lvl := GameState.current_level()
+	return "Level %d" % lvl.id if lvl != null else "Level"
 
 func _refresh_hud() -> void:
 	if _level == null or _level.board == null:
 		return
 	var b: Board = _level.board
-	var delivered: int = 2 - b.keys_remaining()
-	_lbl_keys_left.text = "Keys %d/2" % delivered
-	_lbl_keys_left.add_theme_color_override("font_color", C_ACCENT if delivered == 2 else C_TEXT)
+	_lbl_title.text = _level_title()
+	_key_red.modulate.a = 1.0 if b.red_delivered else 0.3
+	_key_blue.modulate.a = 1.0 if b.blue_delivered else 0.3
+	_lbl_attempts.text = "Attempt %d" % _level.attempts
 	_btn_switch.visible = _level.can_switch()
-	var lvl := GameState.current_level()
-	_lbl_code.text = lvl.code if lvl != null else ""
 
 # =============================================================================
 # Overlay screens
@@ -229,10 +337,16 @@ func _show_message(title: String, body: String, buttons: Array) -> void:
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_overlay_root.add_child(dim)
 
+	# CenterContainer keeps the panel centred as it grows to fit its content —
+	# PRESET_CENTER on the panel itself anchors to its (zero) size before layout.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dim.add_child(center)
+
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _flat_style(C_PANEL, 16))
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	dim.add_child(panel)
+	center.add_child(panel)
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 18)
 	vbox.custom_minimum_size = Vector2(540, 0)

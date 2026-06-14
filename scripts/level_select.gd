@@ -9,7 +9,7 @@ extends Control
 const COMPLETED := preload("res://assets/completedlevelbutton.png")
 const CURRENT := preload("res://assets/currentlevelbutton.png")
 const LOCKED := preload("res://assets/lockedlevelbutton.png")
-const EDITOR := preload("res://assets/leveleditorbutton.png")
+const MORESOON := preload("res://assets/moresoonbutton.png")
 const DUNGEON_BG := preload("res://assets/dungeonbackground.png")
 
 const COLS := 3
@@ -119,52 +119,121 @@ func _make_cell(id: int) -> Control:
 	return cell
 
 func _bottom_bar() -> Control:
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 12)
+	# Plain Control so the (square) "more soon" button can be centred on screen
+	# independent of the back button, which is pinned to the left.
+	var bar := Control.new()
+	# 60% screen width; height follows the banner's own aspect ratio (derived from
+	# the texture so it self-corrects if the art is re-cropped).
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	var btn_w: float = vp.x * 0.6
+	var btn_h: float = btn_w * float(MORESOON.get_height()) / float(MORESOON.get_width())
+	bar.custom_minimum_size = Vector2(0, btn_h)
+
+	# Play / Rules / Social / Level Editor all live on the title screen now; the
+	# selector just teases what's coming next.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(center)
+	var more := TextureButton.new()
+	more.texture_normal = MORESOON
+	more.ignore_texture_size = true
+	more.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	more.custom_minimum_size = Vector2(btn_w, btn_h)
+	more.focus_mode = Control.FOCUS_NONE
+	more.pressed.connect(_open_more_soon)
+	center.add_child(more)
 
 	var back := Button.new()
 	back.text = "←"
 	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(96, 84)
 	back.add_theme_font_size_override("font_size", 40)
+	back.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
 	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
 	bar.add_child(back)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.add_child(spacer)
-
-	var help := Button.new()
-	help.text = "? How to Play"
-	help.focus_mode = Control.FOCUS_NONE
-	help.custom_minimum_size = Vector2(0, 84)
-	help.add_theme_font_size_override("font_size", 30)
-	help.add_theme_color_override("font_color", C_TEXT)
-	help.pressed.connect(_open_instructions)
-	bar.add_child(help)
-
-	var social := Button.new()
-	social.text = "Social"
-	social.focus_mode = Control.FOCUS_NONE
-	social.custom_minimum_size = Vector2(0, 84)
-	social.add_theme_font_size_override("font_size", 30)
-	social.add_theme_color_override("font_color", C_TEXT)
-	social.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/social/ProfileScreen.tscn"))
-	bar.add_child(social)
-
-	var editor := TextureButton.new()
-	editor.texture_normal = EDITOR
-	editor.ignore_texture_size = true
-	editor.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	editor.custom_minimum_size = Vector2(220, 84)
-	editor.focus_mode = Control.FOCUS_NONE
-	editor.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/editor.tscn"))
-	bar.add_child(editor)
 	return bar
 
 func _open_instructions() -> void:
 	add_child(Instructions.new())
 
+const MORE_SOON_MESSAGE := "If you’ve enjoyed these puzzles, let me know! I’m thinking of either adding to this bank of puzzles or making a “puzzle of the day”. If I do either, you’ll have a chance to submit your own puzzles, and if I use it I’ll credit you. You won’t get money, but I’m not making any either.\n\nJ Nicks"
+
+## A simple centred message modal: dim backdrop (tap to close) + a panel.
+func _open_more_soon() -> void:
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP   # block the grid behind us
+	add_child(overlay)
+
+	var dim := Button.new()   # tapping the backdrop dismisses
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.focus_mode = Control.FOCUS_NONE
+	dim.flat = true
+	dim.add_theme_stylebox_override("normal", _modal_style(Color(0, 0, 0, 0.7)))
+	dim.add_theme_stylebox_override("hover", _modal_style(Color(0, 0, 0, 0.7)))
+	dim.add_theme_stylebox_override("pressed", _modal_style(Color(0, 0, 0, 0.7)))
+	dim.pressed.connect(overlay.queue_free)
+	overlay.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _modal_style(Color("13241b"), 18, Color("315140")))
+	center.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 34)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(560, 0)
+	vbox.add_theme_constant_override("separation", 22)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "More Coming Soon"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", C_ACCENT)
+	title.add_theme_font_size_override("font_size", 40)
+	vbox.add_child(title)
+
+	var msg := Label.new()
+	msg.text = MORE_SOON_MESSAGE
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.add_theme_color_override("font_color", C_TEXT)
+	msg.add_theme_font_size_override("font_size", 26)
+	vbox.add_child(msg)
+
+	var close := Button.new()
+	close.text = "Close"
+	close.focus_mode = Control.FOCUS_NONE
+	close.custom_minimum_size = Vector2(0, 72)
+	close.add_theme_font_size_override("font_size", 28)
+	close.add_theme_color_override("font_color", C_TEXT)
+	close.add_theme_stylebox_override("normal", _modal_style(Color("2a4a3a"), 10))
+	close.add_theme_stylebox_override("hover", _modal_style(Color("2a4a3a").lightened(0.12), 10))
+	close.add_theme_stylebox_override("pressed", _modal_style(Color("52ffb8").darkened(0.4), 10))
+	close.pressed.connect(overlay.queue_free)
+	vbox.add_child(close)
+
+func _modal_style(color: Color, radius: int = 0, border: Color = Color(0, 0, 0, 0)) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = color
+	for m: String in ["left", "right", "top", "bottom"]:
+		s.set("content_margin_" + m, 14)
+	if radius > 0:
+		s.set_corner_radius_all(radius)
+	if border.a > 0.0:
+		s.set_border_width_all(2)
+		s.border_color = border
+	return s
+
 func _play(level: LevelData) -> void:
+	GameState.active_challenge = {}   # ensure a regular level, not a stale challenge
 	GameState.select(level)
 	get_tree().change_scene_to_file("res://scenes/game.tscn")

@@ -40,7 +40,7 @@ const API_BASE_URL := "https://us-central1-redkey-bluekey.cloudfunctions.net/api
 ## When true, SocialApiClient serves canned fixture data instead of hitting the
 ## network, and auth is faked locally — handy for UI work offline. The backend
 ## is deployed and live, so this ships false.
-const USE_MOCK_API := false
+const USE_MOCK_API := true
 
 ## Local persisted auth state (uid / idToken / refreshToken / expiresAt).
 const AUTH_SAVE_PATH := "user://social_auth.json"
@@ -52,11 +52,13 @@ const TOKEN_REFRESH_MARGIN_SEC := 300
 const AUTH_SIGNUP_URL := "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=%s"
 const AUTH_REFRESH_URL := "https://securetoken.googleapis.com/v1/token?key=%s"
 
-## Environment variable that enables the level-designer dev flow: when set,
-## clearing a playtested custom level saves it as a real game level (.tres under
-## res://levels/) exactly like the original editor behaviour. When unset,
-## clearing a custom level offers the social flow instead (challenge a friend /
-## post to profile).
+## Environment variable that enables the level-designer dev flow: clearing a
+## playtested custom level saves it as a real game level (.tres under
+## res://levels/) instead of offering the social flow (challenge a friend /
+## post to profile). NOTE: GUI-launched Godot never inherits shell exports, so
+## the usual switch is Tuning.DEV_LEVELS_DEV (on by default in debug builds);
+## this env var is an extra override for CLI/exported runs — the editor checks
+## `Tuning.dev_levels or SocialConfig.dev_levels_mode()`.
 const DEV_LEVELS_ENV := "ACNO_DEV_LEVELS"
 
 static func dev_levels_mode() -> bool:

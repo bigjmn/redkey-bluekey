@@ -24,7 +24,7 @@ const SWIPE_THRESHOLD: int = 24      ## px: minimum swipe distance to register a
 # prod value (writes are ignored). When true the toggle starts at its dev
 # default and can be changed at runtime.
 # =============================================================================
-const INVINCIBLE_DEV: bool = true            ## Francis Scott ignores enemy contact and crushing.
+const INVINCIBLE_DEV: bool = false            ## Francis Scott ignores enemy contact and crushing.
 const INVINCIBLE_PROD: bool = false
 const UNLOCK_ALL_LEVELS_DEV: bool = true     ## Open every level in the level-select without codes.
 const UNLOCK_ALL_LEVELS_PROD: bool = false
@@ -34,12 +34,15 @@ const SHOW_GRID_OVERLAY_DEV: bool = true     ## Draw tile gridlines and coordina
 const SHOW_GRID_OVERLAY_PROD: bool = false
 const SHOW_ENEMY_INTENT_DEV: bool = true     ## Render each enemy's next-move arrow.
 const SHOW_ENEMY_INTENT_PROD: bool = false
+const DEV_LEVELS_DEV: bool = true            ## Editor: beating a playtest saves it as a game level
+const DEV_LEVELS_PROD: bool = false          ## (the designer flow); false = the social share dialog.
 
 var _invincible: bool = INVINCIBLE_DEV
 var _unlock_all_levels: bool = UNLOCK_ALL_LEVELS_DEV
 var _start_level: int = START_LEVEL_DEV
 var _show_grid_overlay: bool = SHOW_GRID_OVERLAY_DEV
 var _show_enemy_intent: bool = SHOW_ENEMY_INTENT_DEV
+var _dev_levels: bool = DEV_LEVELS_DEV
 
 ## True when dev toggles are live. Centralised so it is trivial to fake in a
 ## test or force off for a smoke build.
@@ -75,3 +78,9 @@ var show_enemy_intent: bool:
 	set(value):
 		if dev_mode():
 			_show_enemy_intent = value
+
+var dev_levels: bool:
+	get: return _dev_levels if dev_mode() else DEV_LEVELS_PROD
+	set(value):
+		if dev_mode():
+			_dev_levels = value

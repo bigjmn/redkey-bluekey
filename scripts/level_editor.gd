@@ -21,7 +21,7 @@ const C_GRID_LINE := Color("7c92a8")   ## bright dividing lines between cells
 const PALETTE := [
 	{g = ".", name = "Empty"}, {g = "#", name = "Wall"}, {g = "B", name = "Breakable"},
 	{g = "D", name = "Dirt"}, {g = "R", name = "Rock"}, {g = "X", name = "Barrel"},
-	{g = "T", name = "Teleporter"}, {g = "1", name = "Red Key"}, {g = "2", name = "Blue Key"},
+	{g = "T", name = "Gate"}, {g = "1", name = "Red Key"}, {g = "2", name = "Blue Key"},
 	{g = "W", name = "Switch"}, {g = "P", name = "Flip Off"}, {g = "Q", name = "Flip On"},
 	{g = "G", name = "Gravity"}, {g = "A", name = "Francis Scott"},
 ]
@@ -42,12 +42,18 @@ var _status: Label
 var _palette_buttons: Dictionary = {}  ## glyph -> Button
 var _play_root: Control
 var _edit_ui: Control                  ## the editing UI; hidden during playtest
+var _playtest_dead: bool = false       ## a death/stuck modal is up (one at a time)
 
 var _dragging: bool = false                  ## a drag-paint stroke is in progress
 var _last_cell: Vector2i = Vector2i(-1, -1)  ## last cell painted this stroke (avoid re-paints)
 
 func _ready() -> void:
-	_new_grid()
+	# Resume a saved draft if one was queued from the profile screen, else start fresh.
+	if LevelDrafts.pending_layout != "":
+		_load_layout(LevelDrafts.pending_layout)
+		LevelDrafts.pending_layout = ""
+	else:
+		_new_grid()
 	_build_ui()
 
 # =============================================================================
@@ -73,6 +79,25 @@ func _layout_string() -> String:
 	for row: Array in _grid:
 		rows.append("".join(PackedStringArray(row)))
 	return "\n".join(rows)
+
+## Rebuild the grid from an ASCII layout (a saved draft). Sizes follow the text.
+func _load_layout(layout: String) -> void:
+	var lines := layout.replace("\r", "").split("\n")
+	while lines.size() > 0 and lines[lines.size() - 1] == "":
+		lines.remove_at(lines.size() - 1)
+	if lines.is_empty():
+		_new_grid()
+		return
+	_h = lines.size()
+	_w = 0
+	for line: String in lines:
+		_w = maxi(_w, line.length())
+	_grid = []
+	for y: int in range(_h):
+		var row: Array = []
+		for x: int in range(_w):
+			row.append(lines[y].substr(x, 1) if x < lines[y].length() else ".")
+		_grid.append(row)
 
 # =============================================================================
 # UI
@@ -192,6 +217,7 @@ func _populate_grid_buttons() -> void:
 			b.focus_mode = Control.FOCUS_NONE
 			b.custom_minimum_size = Vector2(cell_size, cell_size)
 			b.clip_contents = true
+			b.add_to_group("no_click")   # board painting isn't a UI click (no click sfx)
 			# Painting is driven by _input (so a press OR a drag places tiles, by mouse
 			# or finger); the button is kept only for its hover/press visuals.
 			var cv := _tile_visual(_grid[y][x], cell_size, cell_size * 0.5, cell_size * 0.5)
@@ -255,11 +281,11 @@ func _is_border(x: int, y: int) -> bool:
 func _paint(x: int, y: int) -> void:
 	if _is_border(x, y):
 		return  # the edge walls are locked
-	# Keep a single spawn: painting a new 'A' clears the old one.
-	if _selected == "A":
+	# Single-instance tiles: a new spawn ('A') or gate ('T') clears the old one.
+	if _selected == "A" or _selected == "T":
 		for yy: int in range(_h):
 			for xx: int in range(_w):
-				if _grid[yy][xx] == "A":
+				if _grid[yy][xx] == _selected:
 					_grid[yy][xx] = "."
 					_refresh_cell(xx, yy)
 	_grid[y][x] = _selected
@@ -281,10 +307,16 @@ func _build_controls(parent: Control) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 8)
 	parent.add_child(row)
-	_mk_button(row, "Validate", _do_validate)
-	_mk_button(row, "Save", _do_save)
+	_mk_button(row, "Clear", _clear_board)
+	_mk_button(row, "Save Draft", _do_save_draft)
 	_mk_button(row, "Playtest", _do_playtest)
 	_mk_button(row, "Back", _go_back)
+
+## Empty the board back to a fresh bordered grid (the edge walls stay locked).
+func _clear_board() -> void:
+	_new_grid()
+	_populate_grid_buttons()
+	_set_status("Board cleared", C_TEXT)
 
 # =============================================================================
 # Validate / save / playtest
@@ -297,6 +329,14 @@ func _do_validate() -> bool:
 	_set_status("Invalid: " + err, C_WARN)
 	return false
 
+## Save the current grid as a local draft — no validation, so works-in-progress
+## are fine. Drafts appear in the profile's "Saved Levels" section.
+func _do_save_draft() -> void:
+	var draft := LevelDrafts.save_draft(_layout_string(), _w, _h)
+	_set_status("Saved %s — find it under Saved Levels on your profile." % draft.name, C_ACCENT)
+
+## Write the current grid as a real, validated game level (.tres). Used by the
+## dev-mode playtest-clear flow, not the editor button.
 func _do_save() -> void:
 	if not _do_validate():
 		return
@@ -347,6 +387,7 @@ func _write_tres(level: LevelData, path: String) -> void:
 func _do_playtest() -> void:
 	if not _do_validate():
 		return
+	_playtest_dead = false
 	var board := Board.from_ascii(_layout_string())
 	board.invincible = Tuning.invincible
 
@@ -372,6 +413,8 @@ func _do_playtest() -> void:
 	var vp := get_viewport().get_visible_rect().size
 	level.fit_to_rect(Rect2(vp.x * 0.05, vp.y * 0.12, vp.x * 0.9, vp.y * 0.72))
 	level.won.connect(func(): _on_playtest_won(level))
+	level.lost.connect(func(reason: String): _show_playtest_dead(level, "You died!", _death_body(reason)))
+	level.became_unwinnable.connect(func(): _show_playtest_dead(level, "Stuck!", "A gate key was destroyed — the level can't be finished."))
 
 	var stop := Button.new()
 	stop.text = "Stop Playtest"
@@ -387,10 +430,60 @@ func _do_playtest() -> void:
 	get_viewport().gui_release_focus()
 
 func _stop_playtest() -> void:
+	_playtest_dead = false
 	for c: Node in _play_root.get_children():
 		c.queue_free()
 	_play_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_edit_ui.visible = true
+
+func _death_body(reason: String) -> String:
+	match reason:
+		"crush": return "Francis Scott was crushed."
+		"explosion": return "Francis Scott was caught in the blast."
+		_: return "Francis Scott didn't make it."
+
+## Centred modal over a dead playtest: Try Again restarts the level, Return to
+## Editor stops the playtest.
+func _show_playtest_dead(level: Node2D, title: String, body: String) -> void:
+	if _playtest_dead:
+		return  # one modal at a time (a blast can fire lost + became_unwinnable together)
+	_playtest_dead = true
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP   # block input to the frozen level behind
+	_play_root.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dim.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _flat(C_PANEL, 16))
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(460, 0)
+	box.add_theme_constant_override("separation", 14)
+	panel.add_child(box)
+
+	var t := Label.new()
+	t.text = title
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.add_theme_color_override("font_color", C_ACCENT)
+	t.add_theme_font_size_override("font_size", 40)
+	box.add_child(t)
+
+	var b := Label.new()
+	b.text = body
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	b.add_theme_color_override("font_color", C_TEXT)
+	b.add_theme_font_size_override("font_size", 26)
+	box.add_child(b)
+
+	_mk_button(box, "Try Again", func(): _playtest_dead = false; dim.queue_free(); level.restart())
+	_mk_button(box, "Return to Editor", _stop_playtest)
 
 # =============================================================================
 # Post-clear flow: dev mode keeps the original "beating it makes it a game
@@ -400,7 +493,9 @@ func _stop_playtest() -> void:
 # =============================================================================
 func _on_playtest_won(level: Node2D) -> void:
 	var tries: int = level.attempts
-	if SocialConfig.dev_levels_mode():
+	# Designer flow when the Tuning dev toggle is on (debug builds, default ON)
+	# or the ACNO_DEV_LEVELS env var is set (works for exported/CLI runs too).
+	if Tuning.dev_levels or SocialConfig.dev_levels_mode():
 		_do_save()
 		_set_status("Cleared! Saved. " + _status.text, C_ACCENT)
 		_stop_playtest()

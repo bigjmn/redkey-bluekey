@@ -20,12 +20,14 @@ var _editor: Node = null
 var _select: Node = null
 var _title: Node = null
 var _instr: Node = null
+var _settings: Node = null
 var _frames: int = 0
 
 func _initialize() -> void:
 	_t("level_drive_push_restart", test_level_drive)
 	_t("switch_and_flip_wall_scene", test_switch_scene)
 	_t("explosion_spares_survivors", test_explosion_spares_survivors)
+	_t("level_drafts_roundtrip", test_level_drafts)
 	_t("game_state_progress_persistence", test_progress)
 	# Boot the controller + editor + selector; assertions run once _ready fired.
 	var gs: Node = root.get_node_or_null("GameState")
@@ -41,6 +43,8 @@ func _initialize() -> void:
 	root.add_child(_title)
 	_instr = Instructions.new()
 	root.add_child(_instr)
+	_settings = SettingsModal.new()
+	root.add_child(_settings)
 
 var _async_done: bool = false
 
@@ -50,11 +54,14 @@ func _process(_delta: float) -> bool:
 		return false
 	if _frames == 3:
 		_t("game_boots_into_level", test_game_boots)
+		_t("challenge_hud_title", test_challenge_hud)
 		_t("editor_boots", test_editor_boots)
 		_t("editor_drag_paint", test_editor_drag_paint)
 		_t("level_select_builds", test_level_select)
 		_t("title_screen_builds", test_title_screen)
 		_t("instructions_modal_pages", test_instructions)
+		_t("settings_modal_tabs", test_settings_modal)
+		_t("sfx_autoload_and_click", test_sfx)
 		_run_async_tests()   # social layer awaits frames; tallied when done
 	if not _async_done:
 		return false
@@ -129,6 +136,15 @@ func test_level_select() -> void:
 	_check(_select.get_child_count() >= 2, "selector built its UI")
 	_check(_count_texture_buttons(_select) >= 12, "selector populated a grid of level buttons")
 
+func test_settings_modal() -> void:
+	_check(root.get_node_or_null("GearMenu") != null, "GearMenu autoload present")
+	_check(_settings._tab_buttons.size() == 3, "settings modal has three tabs")
+	_check(_settings._content.get_child_count() >= 1, "About tab populated")
+	_settings._select(1)   # Settings — reads GearMenu toggle state
+	_check(_settings._content.get_child_count() >= 1, "Settings tab built")
+	_settings._select(2)   # Privacy
+	_check(_settings._content.get_child_count() >= 1, "Privacy tab built")
+
 func test_title_screen() -> void:
 	_check(_title.get_child_count() >= 2, "title screen built its UI")
 	# Play / Rules / Social / Level Editor image buttons.
@@ -162,6 +178,19 @@ func test_game_boots() -> void:
 		var before: Vector2i = _game._level.board.player
 		_game._level.request_move(Vector2i.RIGHT)
 		_check(_game._level.board.player == before + Vector2i.RIGHT, "boot level accepted a move")
+	# HUD: regular level shows "Level N"; both key icons exist.
+	_check(_game._lbl_title.text.begins_with("Level "), "HUD title reads 'Level N' for a regular level")
+	_check(_game._key_red != null and _game._key_blue != null, "HUD has red + blue key icons")
+	_check(_game._lbl_attempts.text == "Attempt 1", "HUD shows the attempt number")
+
+func test_challenge_hud() -> void:
+	# A challenge routed through the controller titles itself "<id> (Challenger)".
+	_game.load_challenge({
+		id = "ch-test", fromDisplayName = "Rocky",
+		payload = {levelId = "rk-1", layout = "#####\n#A12T#\n#####"},
+	})
+	_check(_game._lbl_title.text == "rk-1 (Rocky)", "challenge HUD shows the level id and challenger")
+	_check(not _game._challenge.is_empty(), "controller is in challenge mode")
 
 func test_editor_boots() -> void:
 	_check(_editor._cell_buttons.size() == _editor._w * _editor._h, "editor built its paint grid")
@@ -170,6 +199,9 @@ func test_editor_boots() -> void:
 	_editor._selected = "T"; _editor._paint(_editor._w - 2, 1)
 	_editor._selected = "1"; _editor._paint(3, 1)
 	_editor._selected = "2"; _editor._paint(5, 1)
+	# Single-instance tiles: a second gate replaces the first (like the spawn).
+	_editor._selected = "T"; _editor._paint(6, 1)
+	_check(_editor._layout_string().count("T") == 1, "only one gate can exist on the grid")
 	_check(LevelLoader.validate(_editor._layout_string()) == "", "painted grid validates")
 	var code: String = _editor._make_code(99, _editor._layout_string())
 	_check(code.begins_with("LV99"), "editor generates a level code")
@@ -258,6 +290,59 @@ func test_social_screens() -> void:
 		_check(screen.get_child_count() >= 2, "%s built its UI" % path.get_file())
 		_check(screen.content.get_child_count() >= 1, "%s populated content" % path.get_file())
 		screen.free()
+
+func test_level_drafts() -> void:
+	# Drafts are local, need NOT be valid, and round-trip through the editor parser.
+	var before: int = LevelDrafts.load_all().size()
+	var layout := "###\n#A#\n###"   # deliberately not a winnable level
+	_check(LevelLoader.validate(layout) != "", "the draft layout is intentionally invalid")
+	var d: Dictionary = LevelDrafts.save_draft(layout, 3, 3)
+	var all: Array = LevelDrafts.load_all()
+	_check(all.size() == before + 1, "save_draft appends without validating")
+	_check(str(all.back().get("layout", "")) == layout, "draft stores the raw layout")
+	# The editor reconstructs its grid from a draft layout.
+	var ed: Node = load("res://scenes/editor.tscn").instantiate()
+	ed._load_layout(layout)
+	_check(ed._layout_string() == layout, "editor _load_layout round-trips the draft")
+	ed.free()
+	# Remove only the draft we added (leave any real ones intact).
+	LevelDrafts.delete_draft(int(d.get("id", -1)))
+	_check(LevelDrafts.load_all().size() == before, "delete_draft removes it")
+
+func test_sfx() -> void:
+	var sfx: Node = root.get_node_or_null("Sfx")
+	_check(sfx != null, "Sfx autoload present")
+	if sfx == null:
+		return
+	sfx.play("win")              # known sound -> no crash
+	sfx.play("does-not-exist")   # unknown -> silently ignored
+	_check(true, "play() tolerates known and unknown sounds")
+	var b := Button.new()
+	root.add_child(b)
+	_check(b.pressed.is_connected(Callable(sfx, "_click")), "buttons auto-wire the click sound")
+	var cell := Button.new()
+	cell.add_to_group("no_click")
+	root.add_child(cell)
+	_check(not cell.pressed.is_connected(Callable(sfx, "_click")), "'no_click' buttons stay silent")
+	b.free()
+	cell.free()
+	# The gear menu's Sounds toggle gates playback (defensive: only assert the
+	# muting if headless audio actually reports a voice playing when enabled).
+	for pl: AudioStreamPlayer in sfx._players:
+		pl.stop()
+	SettingsModal.sounds_on = true
+	sfx.play("win")
+	var played_when_on: bool = sfx._players.any(func(p: AudioStreamPlayer) -> bool: return p.playing)
+	for pl: AudioStreamPlayer in sfx._players:
+		pl.stop()
+	SettingsModal.sounds_on = false
+	sfx.play("win")
+	var played_when_off: bool = sfx._players.any(func(p: AudioStreamPlayer) -> bool: return p.playing)
+	SettingsModal.sounds_on = true   # restore default
+	if played_when_on:
+		_check(not played_when_off, "Sounds toggle off mutes effects")
+	else:
+		_check(not played_when_off, "no playback while muted (headless)")
 
 func test_switch_scene() -> void:
 	# Build a level with a switch + flip wall; render terrain, then toggle it.

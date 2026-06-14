@@ -9,6 +9,10 @@ const SAVE_PATH := "user://progress.cfg"
 var levels: Array[LevelData] = []
 var current_index: int = 0
 
+## Set just before entering game.tscn to play a friend's challenge instead of a
+## regular level ({} = regular). The game controller consumes it on _ready.
+var active_challenge: Dictionary = {}
+
 ## The frontier: the highest level id the player has unlocked (can play). Levels
 ## below it are completed; the level equal to it is "current"; higher are locked.
 ## Persisted to user://; defaults to 1 (only the first level open).

@@ -329,6 +329,11 @@ func gravity_step() -> bool:
 					_detonate(p)
 					moved_any = true
 				elif in_bounds(dest) and _resolve_impact(dest):
+					moved_any = true  # crushed Acno or chain-detonated a barrel
+				else:
+					# A rock/key came to rest (on terrain, another object, or the
+					# boundary) -> a "landing". moved_any so the renderer replays it.
+					_emit({t = "land", at = p, kind = occ})
 					moved_any = true
 			if status != Status.PLAYING:
 				_falling = next_falling

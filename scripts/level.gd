@@ -178,6 +178,7 @@ func request_switch() -> void:
 		_post_action()
 
 func restart() -> void:
+	Sfx.play("lose")
 	attempts += 1
 	board.restore(_initial_snapshot)
 	_gravity_accum = 0.0
@@ -316,16 +317,29 @@ func _apply_one(e: Dictionary, deferred: Array) -> void:
 				var dur: float = Tuning.FALL_DURATION * 0.4 if is_fall else Tuning.STEP_DURATION
 				_queue_tween(occ_nodes[e["to"]], e["to"], dur)
 		"deliver", "remove":
+			if e["t"] == "deliver":
+				Sfx.play("powerUp")        # a needed key reached the gate
 			# Capture the node being destroyed NOW (by board-event order), not by a
 			# cell lookup when the deferred fires — otherwise an unrelated object that
 			# falls into this cell meanwhile would be dissolved in its place.
 			var node := _detach_occ(e["at"])
 			if node != null:
 				deferred.append({k = "node", node = node})
+		"land":
+			Sfx.play("itemFall")           # a rock/key came to rest
 		"explode":
+			Sfx.play("explosion")
 			# Just the flash. The objects/barrels actually destroyed each emit their
 			# own "remove" above, so we never dissolve survivors caught over the blast.
 			deferred.append({k = "flash", cells = e["cells"]})
+		"flip_toggled":
+			Sfx.play("switch")
+		"gravity_toggled":
+			Sfx.play("gravityUp" if e["reversed"] else "gravityDown")
+		"won":
+			Sfx.play("win")
+		"lost":
+			Sfx.play("lose")
 
 ## Run the destruction phase once movement has settled.
 func _run_deferred(actions: Array) -> void:

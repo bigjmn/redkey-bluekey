@@ -18,9 +18,11 @@ config/icon="res://icon.svg"
 [autoload]
 
 MCPRuntime="*uid://ey26qwd56wy1"
+Sfx="*res://scripts/autoload/sfx.gd"
 Tuning="*res://scripts/autoload/tuning.gd"
 GameState="*res://scripts/autoload/game_state.gd"
 FirebaseSocial="*res://scripts/social/FirebaseSocial.gd"
+GearMenu="*res://scripts/ui/gear_menu.gd"
 
 [display]
 

@@ -1,35 +1,29 @@
 class_name CellVisual
 extends Node2D
-## A single drawn tile or entity. Most kinds come from the placeholder
-## spritesheet (assets/spritesheet_complete.png, a Kenney-style pack, sliced on
-## its 65px pitch / 64px cells); walls, dirt, the rock, the red/blue teleporter
-## keys and the teleporter's multilock art use standalone assets. Origin is the
-## CENTRE of the cell so the level renderer can tween one between cells. The
-## explosion flash is drawn as a vector.
+## A single drawn tile or entity. Each kind maps to a standalone texture (origin
+## is the CENTRE of the cell so the level renderer can tween one between cells).
+## The explosion flash is drawn as a vector.
 
-const SHEET := preload("res://assets/spritesheet_complete.png")
 const BOULDER := preload("res://assets/stoneCaveRockLarge.png")
 const METAL_WALL := preload("res://assets/metal_wall.png")
-const GREEN_FLOOR := preload("res://assets/background_green.png")
+const DIRT := preload("res://assets/dirt.png")
+const BARREL := preload("res://assets/barrel.png")
 const BREAKABLE := preload("res://assets/breakable_wall.png")
 const REDKEY := preload("res://assets/redkey.png")
 const BLUEKEY := preload("res://assets/bluekey.png")
 const MULTILOCKS := preload("res://assets/multilocks.png")   ## both locks closed
-const REDOPEN := preload("res://assets/redopen.png")         ## red lock opened
-const BLUEOPEN := preload("res://assets/blueopen.png")       ## blue lock opened
+const REDOPEN := preload("res://assets/redopen.png")         ## red key in first (red lock opened)
+const BLUEOPEN := preload("res://assets/blueopen.png")       ## blue key in first (blue lock opened)
+const OPENDOOR := preload("res://assets/opendoor.png")       ## both keys delivered
 const PLATFORM := preload("res://assets/purplePlatform.png") ## flip wall
 const PURPLESWITCH := preload("res://assets/purpleswitch.png")
 const GRAVITY_OFF := preload("res://assets/gravityreverseinactive.png")  ## gravity switch, inactive
 const GRAVITY_ON := preload("res://assets/gravityreverseactive.png")     ## gravity switch, active
 const JETPACK := preload("res://assets/jetpackBoy.png")      ## Francis Scott
-const PITCH := 65   ## sheet cell pitch (64px cell + 1px gap)
-const SRC := 64     ## sheet cell size
 
 # Sourced from the Tuning constant (autoload access can't be a const expression).
 var TILE: int = Tuning.TILE_SIZE
 var HALF: float = Tuning.TILE_SIZE / 2.0
-
-const C_TELE_GLOW := Color("52ffb8")
 
 var kind: String = "floor"
 var active: bool = false                ## teleporter fully unlocked (both keys in)
@@ -59,7 +53,7 @@ static func kind_for_glyph(g: String) -> String:
 		"A": return "player"
 		_: return ""
 
-## Teleporter art: multilocks (none), redopen/blueopen (first key), + glow once active.
+## Teleporter art: multilocks (none), redopen/blueopen (first key), opendoor (both in).
 func set_teleporter(first_color: String, is_active: bool) -> void:
 	if tele_first != first_color or active != is_active:
 		tele_first = first_color
@@ -77,32 +71,28 @@ func set_facing(dir: Vector2i) -> void:
 		facing = dir
 		queue_redraw()
 
-## Sheet region for a (row, col) cell.
-func _reg(row: int, col: int) -> Rect2:
-	return Rect2(col * PITCH, row * PITCH, SRC, SRC)
-
 func _draw() -> void:
 	match kind:
 		"wall": _tex(METAL_WALL, 1.0)
 		"breakable_wall": _tex(BREAKABLE, 1.0)
-		"dirt": _tex(GREEN_FLOOR, 1.0)
+		"dirt": _tex(DIRT, 1.0)
 		"flip_wall": _draw_flip_wall(active)            # starts open; solid when phase is active
 		"flip_wall_active": _draw_flip_wall(not active)  # starts solid; open when phase is active
 		"switch": _draw_switch()
 		"gravity_switch": _tex(GRAVITY_ON if active else GRAVITY_OFF, 0.98)
 		"teleporter":
-			if tele_first == "red":
+			if active:                       # both keys delivered
+				_tex(OPENDOOR, 1.0)
+			elif tele_first == "red":        # red key arrived first
 				_tex(REDOPEN, 1.0)
-			elif tele_first == "blue":
+			elif tele_first == "blue":       # blue key arrived first
 				_tex(BLUEOPEN, 1.0)
 			else:
 				_tex(MULTILOCKS, 1.0)
-			if active:  # both keys in — glow to invite Francis Scott
-				draw_arc(Vector2.ZERO, HALF * 0.82, 0, TAU, 28, C_TELE_GLOW, 4.0, true)
 		"red_key": _tex(REDKEY, 0.92)
 		"blue_key": _tex(BLUEKEY, 0.92)
 		"player": _tex_facing(JETPACK, 0.98)
-		"barrel": _sheet(_reg(13, 10), 0.92)
+		"barrel": _tex(BARREL, 0.96)
 		"rock": _tex(BOULDER, 0.96)
 		"flash": _draw_flash()
 		_:
@@ -111,9 +101,6 @@ func _draw() -> void:
 func _dest(scale_factor: float) -> Rect2:
 	var s := TILE * scale_factor
 	return Rect2(-s / 2.0, -s / 2.0, s, s)
-
-func _sheet(region: Rect2, scale_factor: float) -> void:
-	draw_texture_rect_region(SHEET, _dest(scale_factor), region)
 
 func _tex(tex: Texture2D, scale_factor: float) -> void:
 	draw_texture_rect(tex, _dest(scale_factor), false)

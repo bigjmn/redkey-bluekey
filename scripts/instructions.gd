@@ -24,6 +24,7 @@ const C_BTN := Color("294a39")
 
 const CARD_W := 600
 const TILE_BOX := 76
+const ICON_GAP := 8   ## horizontal gap between two icons in a legend row
 
 # Gaussian-ish blur of whatever is drawn behind the modal (a BackBufferCopy feeds
 # the screen texture). 5x5 weighted taps — cheap enough for a static overlay.
@@ -54,9 +55,9 @@ const PAGES := [
 		intro = "Meet Francis Scott. Swipe in any direction — or use the arrow keys — to move him one tile at a time. He's quick, so you can dart around hazards and shove objects out of the way.",
 		legend = [
 			{tiles = [{kind = "player"}], name = "Francis Scott", desc = "That's you. Steer him through each room to the exit."},
-			{tiles = [{kind = "teleporter"}], name = "Teleporter", desc = "The exit. Locked until both keys are inside — then step in to clear the level."},
+			{tiles = [{kind = "teleporter"}], name = "Gate", desc = "The exit. Locked until both keys are inside — then step in to clear the level."},
 		],
-		goal = "Push the red and blue keys into the teleporter, then step inside to clear the level. Solve each one in as few tries as you can — getting crushed just sends you back to the start.",
+		goal = "Push the red and blue keys into the gate, then step inside to clear the level. Solve each one in as few tries as you can — getting crushed just sends you back to the start.",
 	},
 	{
 		title = "Objects",
@@ -64,7 +65,7 @@ const PAGES := [
 		legend = [
 			{tiles = [{kind = "rock"}], name = "Rock", desc = "A heavy boulder. Shove it or drop it down shafts. A rock that falls onto Francis Scott crushes him."},
 			{tiles = [{kind = "barrel"}], name = "Barrel", desc = "Volatile. Blows up when something drops onto it, or when it lands after a fall — never from a sideways push. The blast clears a 3×3 area and chains to nearby barrels."},
-			{tiles = [{kind = "red_key"}, {kind = "blue_key"}], name = "Red & Blue Key", desc = "Push or drop both into the teleporter to unlock it. A key caught in a blast is lost — the level becomes unwinnable, so restart."},
+			{tiles = [{kind = "red_key"}, {kind = "blue_key"}], name = "Red & Blue Key", desc = "Push or drop both into the gate to unlock it. A key caught in a blast is lost — the level becomes unwinnable, so restart."},
 		],
 	},
 	{
@@ -74,16 +75,16 @@ const PAGES := [
 			{tiles = [{kind = "wall"}], name = "Wall", desc = "Solid steel. Blocks Francis Scott and every object. Indestructible."},
 			{tiles = [{kind = "breakable_wall"}], name = "Breakable Wall", desc = "Acts like a wall, but a barrel blast shatters it — detonate one nearby to open a path."},
 			{tiles = [{kind = "dirt"}], name = "Dirt", desc = "Soft ground. Walk into it to clear it. Objects rest on top, and blasts wipe it away."},
-			{tiles = [{kind = "teleporter"}], name = "Teleporter", desc = "The exit. Stays locked (both locks shut) until the keys are delivered, then lights up."},
+			{tiles = [{kind = "flip_wall", active = true, caption = "Solid"}, {kind = "flip_wall", active = false, caption = "Open"}], name = "Toggle Wall", desc = "Two states: solid (a real wall) or faded (empty space you and objects pass through). A wall switch swaps them — but it won't flip while something sits inside a faded one, so nothing gets trapped."},
 		],
 	},
 	{
 		title = "Other",
-		intro = "Some rooms hide switches that rearrange the room itself. Stand on a switch and a Switch button appears in the controls — press it to throw the switch.",
+		intro = "Special fixtures. They're all indestructible — blasts leave them untouched — and phaseable: Francis Scott and falling objects pass straight through them. Stand on a switch and a Switch button appears in the controls; press it to throw the switch.",
 		legend = [
 			{tiles = [{kind = "switch"}], name = "Wall Switch", desc = "Flips every toggle wall in the room at once."},
-			{tiles = [{kind = "flip_wall", active = true, caption = "Solid"}, {kind = "flip_wall", active = false, caption = "Open"}], name = "Toggle Wall", desc = "Two states: solid (a real wall) or faded (empty space you and objects pass through). The wall switch swaps them — but it won't flip while something sits inside a faded one, so nothing gets trapped."},
 			{tiles = [{kind = "gravity_switch", active = false, caption = "Off"}, {kind = "gravity_switch", active = true, caption = "On"}], name = "Gravity Switch", desc = "Reverses gravity. While it's on, every object falls UP instead of down — use it to lift rocks and keys to places you couldn't reach. Throw it again to drop them back down."},
+			{tiles = [{kind = "teleporter"}], name = "Gate", desc = "The exit. Stays locked (both locks shut) until both keys are delivered, then opens — step in to clear the level."},
 		],
 	},
 ]
@@ -250,11 +251,18 @@ func _legend(rows: Array) -> Control:
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_theme_constant_override("separation", 12)
+	# Reserve a fixed icon-column width (sized to the row with the most tiles) so
+	# every row's name/description starts at the same x — vertically aligned even
+	# when some rows show two icons instead of one.
+	var max_tiles := 1
+	for row: Dictionary in rows:
+		max_tiles = maxi(max_tiles, (row["tiles"] as Array).size())
+	var icon_col_w := max_tiles * TILE_BOX + (max_tiles - 1) * ICON_GAP
 	for row: Dictionary in rows:
 		var line := HBoxContainer.new()
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		line.add_theme_constant_override("separation", 16)
-		line.add_child(_icons(row["tiles"]))
+		line.add_child(_icons(row["tiles"], icon_col_w))
 
 		var text := VBoxContainer.new()
 		text.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -267,12 +275,14 @@ func _legend(rows: Array) -> Control:
 		box.add_child(line)
 	return box
 
-## A horizontal strip of one or more rendered tiles (each optionally captioned).
-func _icons(tiles: Array) -> Control:
+## A horizontal strip of one or more rendered tiles (each optionally captioned),
+## padded to `col_width` so single- and double-icon rows align their text.
+func _icons(tiles: Array, col_width: float) -> Control:
 	var strip := HBoxContainer.new()
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	strip.add_theme_constant_override("separation", 8)
+	strip.add_theme_constant_override("separation", ICON_GAP)
 	strip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	strip.custom_minimum_size = Vector2(col_width, 0)   # reserve the widest-row width
 	for spec: Dictionary in tiles:
 		strip.add_child(_tile_box(spec))
 	return strip

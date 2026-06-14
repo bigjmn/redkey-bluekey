@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="LevelData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level/level_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = 10
+code = "LV1005CM"
+layout = "##########
+#A.DDDDDG#
+#..DDDDD.#
+#..DDDDD.#
+#W.RRR.2##
+#QQ#####.#
+#........#
+#.......X#
+#.......Q#
+#........#
+#......1T#
+##########"

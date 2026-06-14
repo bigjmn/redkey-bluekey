@@ -5,6 +5,7 @@ extends SocialScreenBase
 var _name_edit: LineEdit
 var _code_label: Label
 var _levels_box: VBoxContainer
+var _drafts_box: VBoxContainer
 
 func _screen_title() -> String:
 	return "PROFILE"
@@ -24,8 +25,35 @@ func _on_open() -> void:
 	_levels_box = _section("Posted Levels")
 	_levels_box.add_child(_label("None yet — beat one of your own editor levels to post it.", 21, C_SUB))
 
+	# Saved Levels: local editor drafts (need not be valid; purely on-device).
+	_drafts_box = _section("Saved Levels")
+	_refresh_drafts()
+
 	set_status("Signing in…")
 	FirebaseSocial.refresh_profile()
+
+func _refresh_drafts() -> void:
+	_clear(_drafts_box)
+	_drafts_box.add_child(_label("Saved Levels", 26, C_ACCENT))
+	var drafts: Array = LevelDrafts.load_all()
+	if drafts.is_empty():
+		_drafts_box.add_child(_label("No drafts yet — tap Save Draft in the level editor.", 21, C_SUB))
+		return
+	for d: Dictionary in drafts:
+		var id: int = int(d.get("id", -1))
+		_row(_drafts_box, "%s  (%d×%d)" % [d.get("name", "Draft"), int(d.get("w", 0)), int(d.get("h", 0))], [
+			{text = "Edit", cb = func(): _edit_draft(d)},
+			{text = "Delete", cb = func(): _delete_draft(id)},
+		])
+
+## Reopen the level editor with this draft loaded.
+func _edit_draft(d: Dictionary) -> void:
+	LevelDrafts.pending_layout = str(d.get("layout", ""))
+	get_tree().change_scene_to_file("res://scenes/editor.tscn")
+
+func _delete_draft(id: int) -> void:
+	LevelDrafts.delete_draft(id)
+	_refresh_drafts()
 
 func _exit_tree() -> void:
 	super()

@@ -1,16 +1,13 @@
 extends SocialScreenBase
 ## Challenges screen: send a placeholder challenge to a friend, act on incoming
 ## challenges (accept / decline / play / complete), and review outgoing +
-## completed ones. "Play" loads the challenge's level layout in an overlay
-## (same pattern as the editor playtest) and reports the result on win.
-
-const LevelScene := preload("res://scenes/levels/level.tscn")
+## completed ones. "Play" hands the challenge to the game scene (full HUD,
+## restart, result reporting); see game.gd.
 
 var _friend_pick: OptionButton
 var _incoming_box: VBoxContainer
 var _outgoing_box: VBoxContainer
 var _done_box: VBoxContainer
-var _play_root: Control = null   ## non-null while a challenge level is being played
 
 func _screen_title() -> String:
 	return "CHALLENGES"
@@ -108,45 +105,13 @@ func _rebuild(box: VBoxContainer, title: String, list: Array, actionable: bool) 
 		_row(box, text, buttons)
 
 # =============================================================================
-# Playing a challenge level (overlay, mirrors the editor's playtest)
+# Playing a challenge level — handed off to the full game scene (game.gd reads
+# GameState.active_challenge, plays it with the normal HUD, and reports the
+# result back on a clear).
 # =============================================================================
 func _play_challenge(ch: Dictionary) -> void:
-	var layout: String = str(ch.get("payload", {}).get("layout", ""))
-	if LevelLoader.validate(layout) != "":
+	if LevelLoader.validate(str(ch.get("payload", {}).get("layout", ""))) != "":
 		set_status("Challenge level is invalid", true)
 		return
-	_chrome.visible = false
-	_play_root = Control.new()
-	_play_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_play_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_play_root)
-
-	var field := Node2D.new()
-	_play_root.add_child(field)
-	var level := LevelScene.instantiate()
-	field.add_child(level)
-	level.setup(Board.from_ascii(layout))
-	var vp := get_viewport().get_visible_rect().size
-	level.fit_to_rect(Rect2(vp.x * 0.05, vp.y * 0.12, vp.x * 0.9, vp.y * 0.72))
-	var cid: String = ch.get("id", "")
-	level.won.connect(func():
-		var tries: int = level.attempts
-		_stop_play()
-		set_status("Challenge cleared in %d %s!" % [tries, "try" if tries == 1 else "tries"])
-		FirebaseSocial.complete_challenge(cid, {tries = tries})
-	)
-
-	var quit_btn := _button("Give Up", _stop_play)
-	quit_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	quit_btn.offset_top = -90
-	quit_btn.offset_bottom = -20
-	quit_btn.offset_left = -110
-	quit_btn.offset_right = 110
-	_play_root.add_child(quit_btn)
-	get_viewport().gui_release_focus()
-
-func _stop_play() -> void:
-	if _play_root != null:
-		_play_root.queue_free()
-		_play_root = null
-	_chrome.visible = true
+	GameState.active_challenge = ch
+	get_tree().change_scene_to_file("res://scenes/game.tscn")
