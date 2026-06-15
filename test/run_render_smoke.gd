@@ -25,6 +25,7 @@ var _frames: int = 0
 
 func _initialize() -> void:
 	_t("level_drive_push_restart", test_level_drive)
+	_t("hold_to_move_autorepeat", test_hold_to_move_autorepeat)
 	_t("switch_and_flip_wall_scene", test_switch_scene)
 	_t("explosion_spares_survivors", test_explosion_spares_survivors)
 	_t("level_drafts_roundtrip", test_level_drafts)
@@ -369,6 +370,39 @@ func test_sfx() -> void:
 		_check(not played_when_off, "Sounds toggle off mutes effects")
 	else:
 		_check(not played_when_off, "no playback while muted (headless)")
+
+func test_hold_to_move_autorepeat() -> void:
+	# Holding a direction: ONE step immediately, an "initial move buffer" pause with
+	# no extra steps, then auto-repeat until released.
+	var lvl: Node2D = load("res://scenes/levels/level.tscn").instantiate()
+	root.add_child(lvl)
+	var wall := "#".repeat(15)
+	var mid := "#A" + ".".repeat(12) + "#"      # player at (1,1); open corridor to x=13
+	var b := Board.from_ascii(wall + "\n" + mid + "\n" + wall)
+	lvl.setup(b)
+
+	lvl._begin_dir(Vector2i.RIGHT)
+	_check(b.player == Vector2i(2, 1), "held direction takes one immediate step")
+
+	# Pump frames totalling LESS than the buffer delay: still just the one step.
+	var t: float = 0.0
+	while t < Tuning.MOVE_REPEAT_DELAY * 0.6:
+		lvl._process(0.016)
+		t += 0.016
+	_check(b.player == Vector2i(2, 1), "no extra steps during the initial buffer")
+
+	# Hold past the delay + several intervals: it auto-repeats forward.
+	for _i: int in range(25):
+		lvl._process(0.016)
+	_check(b.player.x >= 5, "held direction auto-repeats after the buffer")
+	var advanced: int = b.player.x
+
+	# Release: stepping stops.
+	lvl._end_dir()
+	for _j: int in range(25):
+		lvl._process(0.016)
+	_check(b.player.x == advanced, "releasing the held direction stops movement")
+	lvl.free()
 
 func test_switch_scene() -> void:
 	# Build a level with a switch + flip wall; render terrain, then toggle it.

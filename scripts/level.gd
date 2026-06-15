@@ -68,6 +68,7 @@ func setup(b: Board) -> void:
 	_gravity_accum = 0.0
 	_status_signaled = false
 	_unwinnable_signaled = false
+	_end_dir()   # drop any held direction from a previous room
 	_rebuild_all()
 	state_changed.emit()
 
@@ -157,13 +158,15 @@ func fit_to_rect(rect: Rect2) -> void:
 # =============================================================================
 # Public actions (also wired to on-screen buttons by the Game controller)
 # =============================================================================
-func request_move(dir: Vector2i) -> void:
+func request_move(dir: Vector2i) -> bool:
 	if not _can_act():
-		return
-	if board.move_player(dir):
-		_input_lock = Tuning.STEP_DURATION
-		_apply_events(board.events)
-		_post_action()
+		return false
+	if not board.move_player(dir):
+		return false
+	_input_lock = Tuning.STEP_DURATION
+	_apply_events(board.events)
+	_post_action()
+	return true
 
 ## True when Francis Scott can toggle the switch he's standing on (drives the UI option).
 func can_switch() -> bool:
@@ -184,6 +187,7 @@ func restart() -> void:
 	_gravity_accum = 0.0
 	_status_signaled = false
 	_unwinnable_signaled = false
+	_end_dir()   # a death/restart shouldn't keep auto-repeating a held direction
 	_rebuild_all()
 	state_changed.emit()
 
@@ -206,6 +210,8 @@ func _process(delta: float) -> void:
 		_input_lock -= delta
 	if board.status != Board.Status.PLAYING:
 		return
+
+	_auto_repeat(delta)
 
 	# Gravity ticks once per FALL_DURATION: each unsupported object drops one
 	# square, independent of the player's (much faster) steps.
@@ -398,29 +404,60 @@ func _spawn_flash(cells: Array) -> void:
 
 # =============================================================================
 # Input
+#
+# Movement uses a "held direction" model (like holding an arrow key in a text
+# field): the first step fires the instant a direction is committed, then —
+# after MOVE_REPEAT_DELAY, the initial buffer that keeps a quick flick to one
+# step — it auto-repeats every MOVE_REPEAT_INTERVAL until released. A drag
+# commits a direction as soon as it crosses SWIPE_THRESHOLD (no need to lift),
+# and re-aiming past the threshold again switches direction. The auto-repeat
+# itself is driven from _process via _auto_repeat().
 # =============================================================================
 var _touch_start: Vector2 = Vector2.ZERO
-var _touch_index: int = -1     ## id of the finger driving the current swipe (-1 = none)
+var _touch_index: int = -1     ## id of the finger driving the current drag (-1 = none)
 var _saw_touch: bool = false   ## a real touch arrived -> ignore emulated mouse events
+var _held_dir: Vector2i = Vector2i.ZERO   ## direction currently held down (auto-repeats); ZERO = none
+var _repeat_timer: float = 0.0            ## counts down to the next auto-repeat move
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_UP, KEY_W: request_move(Vector2i.UP)
-			KEY_DOWN, KEY_S: request_move(Vector2i.DOWN)
-			KEY_LEFT, KEY_A: request_move(Vector2i.LEFT)
-			KEY_RIGHT, KEY_D: request_move(Vector2i.RIGHT)
-			KEY_SPACE, KEY_ENTER: request_switch()
-			KEY_R: restart()
+	if event is InputEventKey and not event.echo:
+		_handle_key(event)   # ignore OS echo — we drive our own repeat
 	elif event is InputEventScreenTouch:
 		_saw_touch = true
 		_handle_pointer(event.pressed, event.position, event.index)
+	elif event is InputEventScreenDrag:
+		_handle_drag(event.position, event.index)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not _saw_touch:
-		# Desktop mouse-drag swipe (only when the device isn't sending real touch).
+		# Desktop mouse drag (only when the device isn't sending real touch).
 		_handle_pointer(event.pressed, event.position, 0)
+	elif event is InputEventMouseMotion and _touch_index == 0 and not _saw_touch:
+		_handle_drag(event.position, 0)
 
-## Track a single pointer: the first finger down starts the swipe, other fingers
-## are ignored, and the release of that finger resolves the direction.
+func _key_dir(keycode: int) -> Vector2i:
+	match keycode:
+		KEY_UP, KEY_W: return Vector2i.UP
+		KEY_DOWN, KEY_S: return Vector2i.DOWN
+		KEY_LEFT, KEY_A: return Vector2i.LEFT
+		KEY_RIGHT, KEY_D: return Vector2i.RIGHT
+	return Vector2i.ZERO
+
+## Arrow/WASD press starts holding a direction; releasing the held one stops it.
+func _handle_key(event: InputEventKey) -> void:
+	var dir := _key_dir(event.keycode)
+	if dir != Vector2i.ZERO:
+		if event.pressed:
+			_begin_dir(dir)
+		elif dir == _held_dir:
+			_end_dir()
+		return
+	if event.pressed:
+		match event.keycode:
+			KEY_SPACE, KEY_ENTER: request_switch()
+			KEY_R: restart()
+
+## Track a single pointer: the first finger down anchors the drag, other fingers
+## are ignored. Releasing it ends the held direction (with a fallback step for a
+## fast flick that produced no drag events).
 func _handle_pointer(pressed: bool, pos: Vector2, index: int) -> void:
 	if pressed:
 		if _touch_index == -1:
@@ -428,9 +465,45 @@ func _handle_pointer(pressed: bool, pos: Vector2, index: int) -> void:
 			_touch_start = pos
 	elif index == _touch_index:
 		_touch_index = -1
-		var dir := Swipe.to_dir(pos - _touch_start, float(Tuning.SWIPE_THRESHOLD))
-		if dir != Vector2i.ZERO:
-			request_move(dir)
+		if _held_dir == Vector2i.ZERO:
+			# No drag ever crossed the threshold (e.g. a flick reported only as
+			# down+up) — resolve from the whole press so a quick swipe still moves.
+			var dir := Swipe.to_dir(pos - _touch_start, float(Tuning.SWIPE_THRESHOLD))
+			if dir != Vector2i.ZERO:
+				request_move(dir)
+		_end_dir()
+
+## A drag crossing the threshold commits a direction; dragging past it again
+## (from the re-anchored origin) switches to a new direction.
+func _handle_drag(pos: Vector2, index: int) -> void:
+	if index != _touch_index:
+		return
+	var dir := Swipe.to_dir(pos - _touch_start, float(Tuning.SWIPE_THRESHOLD))
+	if dir != Vector2i.ZERO and dir != _held_dir:
+		_touch_start = pos   # re-anchor so re-aiming is measured from here
+		_begin_dir(dir)
+
+## Begin holding `dir`: step immediately, then pause for the initial buffer before
+## the per-frame auto-repeat (_auto_repeat) takes over.
+func _begin_dir(dir: Vector2i) -> void:
+	_held_dir = dir
+	_repeat_timer = Tuning.MOVE_REPEAT_DELAY
+	request_move(dir)
+
+func _end_dir() -> void:
+	_held_dir = Vector2i.ZERO
+	_repeat_timer = 0.0
+
+## Per-frame: once the buffer/interval elapses and the previous step's lock has
+## cleared, take another step in the held direction. Real-time countdown so a
+## step that's waiting on the input lock fires the moment the lock clears.
+func _auto_repeat(delta: float) -> void:
+	if _held_dir == Vector2i.ZERO:
+		return
+	_repeat_timer -= delta
+	if _repeat_timer <= 0.0 and _input_lock <= 0.0:
+		request_move(_held_dir)
+		_repeat_timer = Tuning.MOVE_REPEAT_INTERVAL
 
 # =============================================================================
 # Board backdrop + dev overlay — drawn in board-local space, behind the tiles

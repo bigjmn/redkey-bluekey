@@ -16,7 +16,9 @@ const STEP_DURATION: float = 0.08    ## sec: tween time for one tile of movement
 const FALL_DURATION: float = 0.16    ## sec/tile: per-tile fall speed for rocks and orbs.
 const ENEMY_STEP_INTERVAL: float = 0.5  ## sec: how often enemies advance one tile.
 const EXPLOSION_RADIUS: int = 1      ## tiles: square radius cleared by a detonating barrel (1 = 3x3).
-const SWIPE_THRESHOLD: int = 24      ## px: minimum swipe distance to register a move.
+const SWIPE_THRESHOLD: int = 24      ## px: minimum swipe/drag distance to register a move.
+const MOVE_REPEAT_DELAY: float = 0.2 ## sec: a held direction (drag/key) waits this long after its first move before auto-repeating — the "initial move buffer" so a quick flick moves once.
+const MOVE_REPEAT_INTERVAL: float = 0.09 ## sec: time between auto-repeat moves while a direction stays held (≈ STEP_DURATION for fluid motion).
 
 # =============================================================================
 # DEV TOGGLES — live while building, frozen in shipped builds.
