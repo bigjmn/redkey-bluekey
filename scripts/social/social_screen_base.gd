@@ -58,11 +58,7 @@ func _build_chrome() -> void:
 	add_child(bg)
 
 	_chrome = VBoxContainer.new()
-	_chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_chrome.offset_left = 20
-	_chrome.offset_right = -20
-	_chrome.offset_top = 20
-	_chrome.offset_bottom = -20
+	SafeArea.apply(_chrome, 20)   # safe-area inset + 20px padding
 	_chrome.add_theme_constant_override("separation", 12)
 	add_child(_chrome)
 

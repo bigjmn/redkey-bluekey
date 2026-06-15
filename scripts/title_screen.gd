@@ -24,8 +24,8 @@ func _ready() -> void:
 	add_child(bg)
 
 	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
+	SafeArea.apply(center)   # keep the title card + buttons clear of notch/home indicator
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_theme_constant_override("separation", 18)

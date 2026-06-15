@@ -52,6 +52,24 @@ func post_level_to_profile(payload: Dictionary) -> Dictionary:
 		return await _mock_result({ok = true, count = _mock.profile.postedLevels.size()})
 	return await _call_dict(HTTPClient.METHOD_POST, "/me/levels", payload)
 
+## Upsert this device's push token under the caller's profile (one doc per
+## device, so multiple devices per user are supported). `payload` carries
+## fcmToken / platform / deviceId / appVersion. See the backend contract.
+func register_device(payload: Dictionary) -> Dictionary:
+	if SocialConfig.USE_MOCK_API:
+		_mock.devices[str(payload.get("deviceId", "dev"))] = payload
+		return await _mock_result({ok = true})
+	return await _call_dict(HTTPClient.METHOD_POST, "/me/devices", payload)
+
+## Mark a device's push as disabled (logout / account switch). The backend keeps
+## the doc but sets notificationsEnabled=false so sends skip it.
+func disable_device(device_id: String) -> Dictionary:
+	if SocialConfig.USE_MOCK_API:
+		if _mock.devices.has(device_id):
+			_mock.devices[device_id]["notificationsEnabled"] = false
+		return await _mock_result({ok = true})
+	return await _call_dict(HTTPClient.METHOD_POST, "/me/devices/%s/disable" % device_id)
+
 func get_friends() -> Array:
 	if SocialConfig.USE_MOCK_API:
 		return await _mock_result(_mock.friends.duplicate(true))
@@ -210,6 +228,7 @@ func _mock_result(value: Variant) -> Variant:
 # Mock fixture state (mutable, so the UI flows work end-to-end offline)
 # =============================================================================
 var _mock: Dictionary = {
+	devices = {},   ## deviceId -> device doc (push registration)
 	profile = {
 		uid = "mock-uid-1",
 		displayName = "Francis Scott",

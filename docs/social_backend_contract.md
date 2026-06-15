@@ -44,6 +44,8 @@ All responses are JSON. Error responses: appropriate 4xx/5xx with
 | POST | `/challenges` | `{"toUserId": "...", "payload": {...}}` | created challenge |
 | POST | `/challenges/{challengeId}/respond` | `{"accept": true\|false}` | updated challenge (`accepted`/`declined`) |
 | POST | `/challenges/{challengeId}/complete` | `{"result": {...}}` | updated challenge (`completed`) |
+| POST | `/me/devices` | `{fcmToken, deviceId, platform, appVersion}` | `{ok:true}` — upsert this device's push token (one doc per device) |
+| POST | `/me/devices/{deviceId}/disable` | — | `{ok:true}` — set `notificationsEnabled=false` (logout/account switch) |
 
 ### Profile shape
 
@@ -83,6 +85,10 @@ against `payload.triesToBeat` — **never trust a client-provided winner**.
 users/{uid}
   uid, displayName, friendCode, createdAt, updatedAt, stats
 
+users/{uid}/devices/{deviceId}            // push targets — many per user
+  fcmToken, platform: "ios"|"android", deviceId, appVersion
+  lastUpdated, notificationsEnabled: true
+
 friendRequests/{requestId}
   fromUserId, toUserId, fromDisplayName, toDisplayName
   status: "pending" | "accepted" | "rejected"
@@ -121,3 +127,25 @@ challenges/{challengeId}
   (exactly one `A`, ≥1 `T`, one `1`, one `2`, bounded size) to keep posted
   levels playable and non-abusive.
 - Rate-limit request/challenge creation per uid (e.g. 30/day) to limit spam.
+
+## 5. Push notifications (FCM)
+
+Sending push is **backend-only** — never ship FCM server keys or APNs secrets in
+the client (the client only ever *uploads its own device token* via
+`POST /me/devices`). Client/device setup: see `docs/ios_push_setup.md`.
+
+Send flow (already implemented inline in the API handlers, since they are the
+trusted writers of these docs; a Firestore `onCreate` trigger is an equivalent
+alternative):
+
+1. User A acts (sends a friend request / accepts one / sends a challenge).
+2. The handler writes the `friendRequests` / `friendships` / `challenges` doc.
+3. `notifyUser(targetUid, notification, data)` reads
+   `users/{targetUid}/devices` where `notificationsEnabled == true`, collects
+   `fcmToken`s, and calls Admin SDK `messaging().sendEachForMulticast(...)`.
+4. Tokens FCM reports as `registration-token-not-registered` /
+   `invalid-registration-token` are deleted (cleanup).
+
+Data payloads the client routes on (`type` drives the screen it opens):
+`{type:"challenge", challengeId}`, `{type:"friend_request", requestId}`,
+`{type:"friend_accepted", userId}`.

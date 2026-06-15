@@ -217,11 +217,12 @@ func _build() -> void:
 	close.add_theme_stylebox_override("normal", _solid(Color(1, 1, 1, 0.06), 10))
 	close.add_theme_stylebox_override("hover", _solid(Color(1, 1, 1, 0.14), 10))
 	close.add_theme_stylebox_override("pressed", _solid(Color(1, 1, 1, 0.2), 10))
+	var sa: Dictionary = SafeArea.insets()   # clear the notch / Dynamic Island
 	close.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	close.offset_left = -76
-	close.offset_top = 20
-	close.offset_right = -20
-	close.offset_bottom = 76
+	close.offset_left = -(76 + sa.right)
+	close.offset_top = 20 + sa.top
+	close.offset_right = -(20 + sa.right)
+	close.offset_bottom = 76 + sa.top
 	close.pressed.connect(_close)
 	add_child(close)
 

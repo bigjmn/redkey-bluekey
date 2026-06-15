@@ -1,0 +1,21 @@
+[config]
+
+name="GodotxFirebaseMessaging"
+binary="GodotxFirebaseMessaging.xcframework"
+
+initialization="initialize_godotx_firebase_messaging_module"
+deinitialization="uninitialize_godotx_firebase_messaging_module"
+
+[dependencies]
+
+linked=[]
+
+embedded=["FirebaseMessaging.xcframework", "GoogleDataTransport.xcframework"]
+
+system=["UserNotifications.framework", "UIKit.framework", "Foundation.framework"]
+
+capabilities=[]
+
+files=[]
+
+linker_flags=["-ObjC", "-L$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)"]

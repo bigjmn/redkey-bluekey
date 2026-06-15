@@ -112,9 +112,9 @@ func _build_ui() -> void:
 	_edit_ui = bg
 
 	var root := VBoxContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 10)
 	bg.add_child(root)
+	SafeArea.apply(root, 8)   # keep editor controls clear of notch/home indicator
 
 	var title := Label.new()
 	title.text = "Level Editor"
@@ -308,8 +308,8 @@ func _build_controls(parent: Control) -> void:
 	row.add_theme_constant_override("separation", 8)
 	parent.add_child(row)
 	_mk_button(row, "Clear", _clear_board)
-	_mk_button(row, "Save Draft", _do_save_draft)
-	_mk_button(row, "Playtest", _do_playtest)
+	_mk_button(row, "Save", _do_save_draft)
+	_mk_button(row, "Play", _do_playtest)
 	_mk_button(row, "Back", _go_back)
 
 ## Empty the board back to a fresh bordered grid (the edge walls stay locked).

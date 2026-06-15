@@ -40,13 +40,14 @@ func _build() -> void:
 	add_child(bg)
 
 	var root := VBoxContainer.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 16)
-	root.offset_left = 20
-	root.offset_right = -20
-	root.offset_top = 24
-	root.offset_bottom = -24
 	add_child(root)
+	var sa: Dictionary = SafeArea.insets_for(get_viewport_rect().size)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.offset_left = sa.left + 20
+	root.offset_right = -(sa.right + 20)
+	root.offset_top = sa.top + 24
+	root.offset_bottom = -(sa.bottom + 24)
 
 	var title := Label.new()
 	title.text = "LEVEL SELECTOR"

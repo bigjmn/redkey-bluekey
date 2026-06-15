@@ -1,0 +1,8 @@
+#ifndef GODOTX_FIREBASE_CRASHLYTICS_MODULE_H
+#define GODOTX_FIREBASE_CRASHLYTICS_MODULE_H
+
+void initialize_godotx_firebase_crashlytics_module();
+void uninitialize_godotx_firebase_crashlytics_module();
+
+#endif // GODOTX_FIREBASE_CRASHLYTICS_MODULE_H
+

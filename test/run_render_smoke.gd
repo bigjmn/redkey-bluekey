@@ -75,6 +75,7 @@ func _process(_delta: float) -> bool:
 func _run_async_tests() -> void:
 	await _t_async("social_mock_flow", test_social_mock_flow)
 	await _t_async("social_screens_build", test_social_screens)
+	await _t_async("push_service", test_push)
 	_async_done = true
 
 func _t(name: String, fn: Callable) -> void:
@@ -272,6 +273,31 @@ func test_social_mock_flow() -> void:
 	_check(fs.completed_challenges().size() == 1, "completing a challenge moves it to completed")
 	_check(await fs.post_level_to_profile({levelId = "smoke", layout = "", triesToBeat = 1}),
 		"posting a level to the profile succeeds")
+
+func test_push() -> void:
+	var push: Node = root.get_node_or_null("PushNotificationService")
+	_check(push != null, "PushNotificationService autoload present")
+	if push == null:
+		return
+	_check(push.has_signal("push_token_updated") and push.has_signal("notification_opened")
+		and push.has_signal("push_registration_failed"), "push signals exposed")
+	_check(push._device_id != "", "a stable device id was derived")
+	# No plugin on desktop -> register/clear must no-op without crashing.
+	await push.register_current_device_for_push("u1")
+	await push.clear_current_device_push_token("u1")
+	_check(true, "register/clear are safe no-ops without a plugin")
+	# With a token present, registration round-trips through the (mock) backend.
+	# (Autoloads are reached via node lookup — the -s main script is compiled
+	# before autoload-name globals exist.)
+	var fs: Node = root.get_node_or_null("FirebaseSocial")
+	if SocialConfig.USE_MOCK_API and fs != null:
+		push._fcm_token = "tok-smoke"
+		push._user_id = "u1"
+		await push._try_register()
+		_check(fs.client._mock.devices.has(push._device_id),
+			"device registered via the backend with a token")
+	else:
+		_check(true, "live mode — device backend round-trip skipped")
 
 func test_social_screens() -> void:
 	if not SocialConfig.USE_MOCK_API:

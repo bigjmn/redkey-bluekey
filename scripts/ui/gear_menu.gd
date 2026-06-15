@@ -25,11 +25,14 @@ func _ready() -> void:
 	gear.ignore_texture_size = true
 	gear.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	gear.focus_mode = Control.FOCUS_NONE
+	# Pin bottom-right, pushed in by the safe area so it clears the home indicator
+	# and rounded corner on iOS (insets are 0 on desktop).
+	var sa: Dictionary = SafeArea.insets()
 	gear.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	gear.offset_left = -90    # 72px box, 18px from the corner
-	gear.offset_top = -90
-	gear.offset_right = -18
-	gear.offset_bottom = -18
+	gear.offset_right = -(18 + sa.right)
+	gear.offset_bottom = -(18 + sa.bottom)
+	gear.offset_left = -(90 + sa.right)   # 72px box
+	gear.offset_top = -(90 + sa.bottom)
 	gear.pressed.connect(open)
 	holder.add_child(gear)
 

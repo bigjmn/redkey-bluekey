@@ -172,6 +172,24 @@ func post_level_to_profile(payload: Dictionary) -> bool:
 	return not res.is_empty()
 
 # =============================================================================
+# Push devices — used by PushNotificationService; the backend writes the
+# users/{uid}/devices/{deviceId} doc (clients never touch Firestore directly).
+# =============================================================================
+func register_device(payload: Dictionary) -> bool:
+	if not await ensure_signed_in():
+		return false
+	var res: Dictionary = await client.register_device(payload)
+	return not res.is_empty()
+
+func disable_device(device_id: String) -> bool:
+	if device_id.is_empty():
+		return false
+	if not await ensure_signed_in():
+		return false
+	var res: Dictionary = await client.disable_device(device_id)
+	return not res.is_empty()
+
+# =============================================================================
 # Friends
 # =============================================================================
 func refresh_friends() -> void:

@@ -169,10 +169,12 @@ func _relayout() -> void:
 	if _level == null:
 		return
 	var vp := _viewport_size()
-	var top := vp.y * 0.17     # two stacked HUD rows (level title + key/attempt/restart)
-	var bottom := vp.y * 0.14  # contextual Switch button below the grid
+	var sa: Dictionary = SafeArea.insets()
+	var top: float = vp.y * 0.17 + sa.top     # two HUD rows, below the notch
+	var bottom: float = vp.y * 0.14 + sa.bottom  # Switch band, above the home indicator
 	var pad := vp.x * 0.03
-	var rect := Rect2(pad, top + pad, vp.x - pad * 2.0, vp.y - top - bottom - pad * 2.0)
+	var rect := Rect2(pad + sa.left, top + pad,
+		vp.x - pad * 2.0 - sa.left - sa.right, vp.y - top - bottom - pad * 2.0)
 	_level.fit_to_rect(rect)
 
 # =============================================================================
@@ -200,18 +202,23 @@ func _build_hud() -> void:
 	layer.add_child(_hud_root)
 
 	# Two stacked rows anchored to the top of the screen.
+	var sa: Dictionary = SafeArea.insets()
 	var top_box := VBoxContainer.new()
 	top_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top_box.offset_top = sa.top         # below the notch / Dynamic Island
+	top_box.offset_left = sa.left
+	top_box.offset_right = -sa.right
 	top_box.add_theme_constant_override("separation", 4)
 	_hud_root.add_child(top_box)
 	top_box.add_child(_build_title_row())
 	top_box.add_child(_build_status_row())
 
-	# Contextual Switch button, centred in the band below the grid.
+	# Contextual Switch button, centred in the band below the grid (above the
+	# home indicator).
 	var sw := CenterContainer.new()
 	sw.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	sw.offset_top = -_viewport_size().y * 0.13
-	sw.offset_bottom = -_viewport_size().y * 0.02
+	sw.offset_top = -_viewport_size().y * 0.13 - sa.bottom
+	sw.offset_bottom = -_viewport_size().y * 0.02 - sa.bottom
 	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud_root.add_child(sw)
 	_btn_switch = _bar_button("Switch", func(): if _level: _level.request_switch())

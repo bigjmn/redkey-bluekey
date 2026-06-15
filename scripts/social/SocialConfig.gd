@@ -40,7 +40,7 @@ const API_BASE_URL := "https://us-central1-redkey-bluekey.cloudfunctions.net/api
 ## When true, SocialApiClient serves canned fixture data instead of hitting the
 ## network, and auth is faked locally — handy for UI work offline. The backend
 ## is deployed and live, so this ships false.
-const USE_MOCK_API := true
+const USE_MOCK_API := false
 
 ## Local persisted auth state (uid / idToken / refreshToken / expiresAt).
 const AUTH_SAVE_PATH := "user://social_auth.json"

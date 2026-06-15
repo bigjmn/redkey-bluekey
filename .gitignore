@@ -6,3 +6,5 @@
 social_keys.json
 # Backend node deps
 backend/functions/node_modules/
+# Firebase iOS app config (contains the iOS client key) — keep out of VCS.
+GoogleService-Info.plist

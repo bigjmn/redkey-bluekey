@@ -12,6 +12,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getMessaging } = require("firebase-admin/messaging");
 const express = require("express");
 
 initializeApp();
@@ -158,6 +159,84 @@ app.post("/me/levels", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Push devices  (users/{uid}/devices/{deviceId})  — supports many per user.
+// Clients send their FCM token here; never store server keys client-side.
+// ---------------------------------------------------------------------------
+app.post("/me/devices", async (req, res) => {
+  const { fcmToken, deviceId, platform, appVersion } = req.body || {};
+  if (typeof fcmToken !== "string" || !fcmToken) {
+    return res.status(400).json({ error: "fcmToken required" });
+  }
+  if (typeof deviceId !== "string" || !deviceId) {
+    return res.status(400).json({ error: "deviceId required" });
+  }
+  await getOrCreateProfile(req.uid);
+  await db.collection("users").doc(req.uid).collection("devices").doc(deviceId).set(
+    {
+      fcmToken,
+      deviceId,
+      platform: platform === "android" ? "android" : "ios",
+      appVersion: String(appVersion || ""),
+      notificationsEnabled: true,
+      lastUpdated: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  res.json({ ok: true });
+});
+
+app.post("/me/devices/:deviceId/disable", async (req, res) => {
+  const ref = db.collection("users").doc(req.uid).collection("devices").doc(req.params.deviceId);
+  if (!(await ref.get()).exists) return res.status(404).json({ error: "device not found" });
+  await ref.update({ notificationsEnabled: false, lastUpdated: FieldValue.serverTimestamp() });
+  res.json({ ok: true });
+});
+
+// List the caller's own devices (for device management / testing).
+app.get("/me/devices", async (req, res) => {
+  const snap = await db.collection("users").doc(req.uid).collection("devices").get();
+  res.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+});
+
+/**
+ * Send a push to all of a user's notification-enabled devices and prune any
+ * tokens FCM reports as invalid. Fire-and-forget: never block / fail the
+ * originating request because a notification couldn't be sent.
+ */
+async function notifyUser(uid, notification, data = {}) {
+  try {
+    const snap = await db
+      .collection("users").doc(uid).collection("devices")
+      .where("notificationsEnabled", "==", true).get();
+    const tokens = snap.docs.map((d) => d.get("fcmToken")).filter(Boolean);
+    console.log(`notifyUser ${uid}: ${tokens.length} token(s)`);
+    if (tokens.length === 0) return;
+    // FCM data values must be strings.
+    const stringData = {};
+    for (const [k, v] of Object.entries(data)) stringData[k] = String(v);
+    const resp = await getMessaging().sendEachForMulticast({tokens, notification, data: stringData});
+    // Prune ONLY tokens FCM reports as genuinely dead. Everything else
+    // (third-party-auth-error from APNs config, transient network errors, etc.)
+    // is logged but never pruned — those are not the device token's fault.
+    const STALE = new Set([
+      "messaging/registration-token-not-registered",
+      "messaging/invalid-registration-token",
+    ]);
+    const removals = [];
+    resp.responses.forEach((r, i) => {
+      if (r.error) {
+        console.warn(`notifyUser ${uid}: send error [${r.error.code}] ${r.error.message}`);
+        if (STALE.has(r.error.code)) removals.push(snap.docs[i].ref.delete());
+      }
+    });
+    console.log(`notifyUser ${uid}: ${resp.successCount} sent, ${removals.length} pruned`);
+    await Promise.all(removals);
+  } catch (e) {
+    console.error("notifyUser failed", uid, e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Friends
 // ---------------------------------------------------------------------------
 const friendshipId = (a, b) => [a, b].sort().join("_");
@@ -217,6 +296,9 @@ app.post("/friends/requests", async (req, res) => {
     createdAt: FieldValue.serverTimestamp(),
     respondedAt: null,
   });
+  notifyUser(target.uid,
+    { title: "New friend request", body: `${me.displayName} wants to be friends` },
+    { type: "friend_request", requestId: ref.id });
   res.json({ id: ref.id, direction: "outgoing", ...(await ref.get()).data() });
 });
 
@@ -243,6 +325,11 @@ app.post("/friends/requests/:id/respond", async (req, res) => {
       }
       return { id: snap.id, ...r, status: accept ? "accepted" : "rejected" };
     });
+    if (accept) {
+      notifyUser(updated.fromUserId,
+        { title: "Friend request accepted", body: `${updated.toDisplayName} is now your friend` },
+        { type: "friend_accepted", userId: updated.toUserId });
+    }
     res.json(updated);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.error || "Internal error" });
@@ -285,6 +372,9 @@ app.post("/challenges", async (req, res) => {
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
+  notifyUser(toUserId,
+    { title: "New challenge!", body: `${me.displayName} challenged you` },
+    { type: "challenge", challengeId: ref.id });
   res.json({ id: ref.id, ...(await ref.get()).data() });
 });
 
