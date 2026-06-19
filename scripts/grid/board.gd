@@ -145,6 +145,13 @@ func is_open(p: Vector2i) -> bool:
 	return in_bounds(p) and _is_floor(terrain_at(p)) \
 		and occupant_at(p) == Occupant.NONE and not player_at(p)
 
+## True when the object at `cell` is resting — the cell it would fall into (one
+## step in the gravity direction) is blocked. This mirrors the fall test in
+## gravity_step() exactly (an object falls iff `is_open` below it), so the pusher
+## and gravity always agree on what "supported" means.
+func _occ_supported(cell: Vector2i) -> bool:
+	return not is_open(cell + gravity_dir())
+
 ## How many teleporter keys are still undelivered (0, 1, or 2).
 func keys_remaining() -> int:
 	return (0 if red_delivered else 1) + (0 if blue_delivered else 1)
@@ -190,8 +197,12 @@ func move_player(dir: Vector2i) -> bool:
 	if occ != Occupant.NONE:
 		if occ == Occupant.ROCK or occ == Occupant.BARREL or _is_teleporter_key(occ):
 			# Objects can't be pushed against gravity (up normally, down while
-			# reversed), nor while they're mid-fall.
-			if dir == -gravity_dir() or _falling.has(dest):
+			# reversed), while they're mid-fall, or while they're UNSUPPORTED.
+			# The last one closes a timing glitch: gravity ticks slower than the
+			# player moves, so without it a quick player could slide an object
+			# sideways across a gap before it started to fall. You can still nudge
+			# a supported object one tile off an edge (it then drops straight down).
+			if dir == -gravity_dir() or _falling.has(dest) or not _occ_supported(dest):
 				return false
 			var beyond: Vector2i = dest + dir
 			if not is_open(beyond):

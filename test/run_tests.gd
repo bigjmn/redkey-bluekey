@@ -32,6 +32,7 @@ func _run_all() -> void:
 	_t("push_rock", test_push_rock)
 	_t("push_blocked_by_wall", test_push_blocked_by_wall)
 	_t("cannot_push_falling_object", test_cannot_push_falling_object)
+	_t("cannot_push_unsupported_object", test_cannot_push_unsupported_object)
 	_t("cannot_push_upward", test_cannot_push_upward)
 	_t("push_key_into_teleporter", test_push_key_into_teleporter)
 	_t("blue_key_first_color", test_blue_key_first_color)
@@ -172,6 +173,20 @@ func test_cannot_push_falling_object() -> void:
 	_check(not b.move_player(Vector2i.LEFT), "cannot push a falling rock")
 	_eq(b.occupant_at(Vector2i(1, 2)), Board.Occupant.ROCK, "rock stayed put")
 	_eq(b.player, Vector2i(2, 2), "Francis Scott did not move into it")
+
+func test_cannot_push_unsupported_object() -> void:
+	# Regression for the "skate over a gap" glitch: a rock pushed to the edge of a
+	# one-column gap is now unsupported, so it must NOT be pushable a second time
+	# (sliding across before gravity ticks). Instead it falls into the gap.
+	var b := _board(["######", "#AR..#", "#.#.##", "######"])
+	_check(b.move_player(Vector2i.RIGHT), "first push accepted (rock was supported)")
+	_eq(b.occupant_at(Vector2i(3, 1)), Board.Occupant.ROCK, "rock pushed to the gap edge")
+	_eq(b.player, Vector2i(2, 1), "Francis Scott advanced behind it")
+	_check(not b.move_player(Vector2i.RIGHT), "second push refused — the rock is unsupported")
+	_eq(b.occupant_at(Vector2i(3, 1)), Board.Occupant.ROCK, "rock did not skate across the gap")
+	_eq(b.player, Vector2i(2, 1), "Francis Scott did not advance into the gap")
+	b.gravity_step()
+	_eq(b.occupant_at(Vector2i(3, 2)), Board.Occupant.ROCK, "rock fell into the gap instead")
 
 func test_cannot_push_upward() -> void:
 	# A rock sits on Francis Scott's head; trying to push it up is blocked.
