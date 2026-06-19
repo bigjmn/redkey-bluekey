@@ -125,10 +125,30 @@ func _build_settings() -> void:
 	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_child(center)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 24)
+	col.add_theme_constant_override("separation", 28)
 	center.add_child(col)
-	col.add_child(_toggle("Sounds", sounds_on, func(on: bool): sounds_on = on))
-	col.add_child(_toggle("Notifications", notifications_on, func(on: bool): notifications_on = on))
+	col.add_child(_toggle_block(
+		"Sounds", "Really?", "Obviously.",
+		sounds_on, func(on: bool): sounds_on = on))
+	# Notifications reflect the persisted, backend-synced preference owned by
+	# PushNotificationService — flipping it off actually stops push, not just the
+	# on-device permission.
+	var ps := _push_service()
+	if ps != null and ps.has_method("notifications_enabled"):
+		notifications_on = ps.notifications_enabled()
+	col.add_child(_toggle_block(
+		"Notifications", "We're in this one together.", "Come on, these sucked to implement.",
+		notifications_on, _on_notifications_toggled))
+
+## The PushNotificationService autoload (null in contexts where it isn't loaded).
+func _push_service() -> Node:
+	return get_node_or_null("/root/PushNotificationService")
+
+func _on_notifications_toggled(on: bool) -> void:
+	notifications_on = on
+	var ps := _push_service()
+	if ps != null and ps.has_method("set_notifications_enabled"):
+		ps.set_notifications_enabled(on)
 
 func _build_privacy() -> void:
 	# Direct VBox children fill the card width (so the text lays out horizontally);
@@ -137,7 +157,7 @@ func _build_privacy() -> void:
 	var top := Control.new()
 	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_child(top)
-	_content.add_child(_label("I will not share your data.", 28, C_TEXT))
+	_content.add_child(_label("I will not share your data. I don't care what they do to me. Does that make me a hero?", 28, C_TEXT))
 	var bottom := Control.new()
 	bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_child(bottom)
@@ -171,18 +191,44 @@ func _spacer(h: int) -> Control:
 	c.custom_minimum_size = Vector2(0, h)
 	return c
 
-## A switch-style toggle with a left-aligned caption; both rows share a width so
-## the switches line up, and the group is centred by the caller.
-func _toggle(text: String, value: bool, cb: Callable) -> CheckButton:
+## Footprint of the (unscaled) switch row; scaled up so the toggle reads big.
+const TOGGLE_BASE := Vector2(320, 56)
+const TOGGLE_SCALE := 1.5
+
+## A large switch toggle: a scaled CheckButton (caption + switch) with live helper
+## text below it that reflects the current on/off state. The default switch glyph
+## is a fixed size, so we scale the whole control and reserve its scaled footprint
+## in a holder, keeping each row centred and clear of its neighbour.
+func _toggle_block(caption: String, on_text: String, off_text: String, value: bool, cb: Callable) -> VBoxContainer:
+	var block := VBoxContainer.new()
+	block.add_theme_constant_override("separation", 6)
+
 	var t := CheckButton.new()
-	t.text = text
+	t.text = caption
 	t.button_pressed = value
 	t.focus_mode = Control.FOCUS_NONE
-	t.custom_minimum_size = Vector2(360, 64)
-	t.add_theme_font_size_override("font_size", 28)
+	t.custom_minimum_size = TOGGLE_BASE
+	t.add_theme_font_size_override("font_size", 26)
 	t.add_theme_color_override("font_color", C_TEXT)
-	t.toggled.connect(cb)
-	return t
+	t.pivot_offset = TOGGLE_BASE * 0.5          # scale about the centre so it stays put
+	t.scale = Vector2(TOGGLE_SCALE, TOGGLE_SCALE)
+
+	var holder := CenterContainer.new()
+	holder.custom_minimum_size = TOGGLE_BASE * TOGGLE_SCALE
+	holder.add_child(t)
+	block.add_child(holder)
+
+	var helper := Label.new()
+	helper.text = on_text if value else off_text
+	helper.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	helper.add_theme_color_override("font_color", C_SUB)
+	helper.add_theme_font_size_override("font_size", 20)
+	block.add_child(helper)
+
+	t.toggled.connect(func(on: bool):
+		cb.call(on)
+		helper.text = on_text if on else off_text)
+	return block
 
 func _tab_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()

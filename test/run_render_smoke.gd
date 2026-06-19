@@ -63,6 +63,7 @@ func _process(_delta: float) -> bool:
 		_t("instructions_modal_pages", test_instructions)
 		_t("settings_modal_tabs", test_settings_modal)
 		_t("sfx_autoload_and_click", test_sfx)
+		_t("dig_drag_sfx", test_dig_drag_sfx)   # needs the Sfx pool ready (frame 3+)
 		_run_async_tests()   # social layer awaits frames; tallied when done
 	if not _async_done:
 		return false
@@ -120,6 +121,18 @@ func test_progress() -> void:
 	gs.highest_unlocked = 2
 	_check(gs.is_completed_id(1), "level below the frontier is completed")
 	_check(gs.is_current_id(2), "the frontier level is current")
+	# Locking: with the dev unlock-all toggle OFF (prod behaviour), levels beyond
+	# the player's current level are locked.
+	var tuning: Node = root.get_node_or_null("Tuning")
+	if tuning != null:
+		var orig_unlock: bool = tuning.unlock_all_levels
+		tuning.unlock_all_levels = false
+		_check(gs.is_unlocked_id(2), "the current level is unlocked")
+		_check(not gs.is_unlocked_id(3), "the level past the current one is locked")
+		_check(not gs.is_unlocked_id(99), "far-future levels are locked")
+		tuning.unlock_all_levels = true
+		_check(gs.is_unlocked_id(99), "the unlock-all dev toggle opens every level")
+		tuning.unlock_all_levels = orig_unlock
 	var l2: Resource = gs.level_by_id(2)
 	if l2 != null:
 		gs.mark_cleared(l2)
@@ -294,9 +307,27 @@ func test_push() -> void:
 	if SocialConfig.USE_MOCK_API and fs != null:
 		push._fcm_token = "tok-smoke"
 		push._user_id = "u1"
+		var orig_pref: bool = push._notifications_enabled
+		# The notifications preference flows into the registered device doc, which is
+		# what the backend reads to decide whether to send (independent of iOS).
+		push._notifications_enabled = true
 		await push._try_register()
 		_check(fs.client._mock.devices.has(push._device_id),
 			"device registered via the backend with a token")
+		_check(fs.client._mock.devices[push._device_id].get("notificationsEnabled") == true,
+			"registration carries notificationsEnabled = true")
+		push._notifications_enabled = false
+		await push._try_register()
+		_check(fs.client._mock.devices[push._device_id].get("notificationsEnabled") == false,
+			"disabling notifications sets the device doc notificationsEnabled = false")
+		# Preference persists across runs (user://) so a disabled user stays disabled.
+		push._save_prefs()
+		push._notifications_enabled = true
+		push._load_prefs()
+		_check(not push._notifications_enabled, "notifications preference persists on user://")
+		_check(not push.notifications_enabled(), "notifications_enabled() reflects the saved pref")
+		push._notifications_enabled = orig_pref   # restore so we don't clobber the real pref
+		push._save_prefs()
 	else:
 		_check(true, "live mode — device backend round-trip skipped")
 
@@ -403,6 +434,47 @@ func test_hold_to_move_autorepeat() -> void:
 		lvl._process(0.016)
 	_check(b.player.x == advanced, "releasing the held direction stops movement")
 	lvl.free()
+
+func test_dig_drag_sfx() -> void:
+	var sfx: Node = root.get_node_or_null("Sfx")
+	if sfx == null:
+		_check(false, "Sfx autoload present")
+		return
+	_check(sfx.STREAMS.has("dig") and sfx.STREAMS.has("drag"),
+		"dig and drag effects are registered in the Sfx pool")
+	SettingsModal.sounds_on = true
+
+	# Walking into a dirt tile fires "dig".
+	var dig_lvl: Node2D = load("res://scenes/levels/level.tscn").instantiate()
+	root.add_child(dig_lvl)
+	dig_lvl.setup(Board.from_ascii("#####\n#AD.#\n#####"))   # dirt right of Francis Scott
+	_clear_streams(sfx)
+	dig_lvl.request_move(Vector2i.RIGHT)
+	_check(_used_stream(sfx, sfx.STREAMS["dig"]), "clearing a dirt tile fires the dig sound")
+	dig_lvl.free()
+
+	# Pushing an object fires "drag"; a gravity fall does NOT.
+	var push_lvl: Node2D = load("res://scenes/levels/level.tscn").instantiate()
+	root.add_child(push_lvl)
+	push_lvl.setup(Board.from_ascii("#####\n#AR.#\n#####"))   # rock right of Francis Scott
+	_clear_streams(sfx)
+	push_lvl.request_move(Vector2i.RIGHT)
+	_check(_used_stream(sfx, sfx.STREAMS["drag"]), "pushing an object fires the drag sound")
+	_clear_streams(sfx)
+	push_lvl._apply_events([{t = "fall", from = Vector2i(3, 1), to = Vector2i(3, 2)}])
+	_check(not _used_stream(sfx, sfx.STREAMS["drag"]), "a gravity fall does not fire the drag sound")
+	push_lvl.free()
+
+func _clear_streams(sfx: Node) -> void:
+	for p: AudioStreamPlayer in sfx._players:
+		p.stop()
+		p.stream = null
+
+func _used_stream(sfx: Node, stream: AudioStream) -> bool:
+	for p: AudioStreamPlayer in sfx._players:
+		if p.stream == stream:
+			return true
+	return false
 
 func test_switch_scene() -> void:
 	# Build a level with a switch + flip wall; render terrain, then toggle it.

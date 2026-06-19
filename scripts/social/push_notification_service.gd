@@ -32,8 +32,16 @@ var _device_id: String = ""
 var _fcm_token: String = ""
 var _user_id: String = ""
 
+## User preference (Settings → Notifications), persisted to user://. Mirrored to
+## the backend device doc as `notificationsEnabled`; the server skips sends to
+## devices where it's false, so turning this off stops push even while iOS still
+## "allows" notifications for the app.
+const PREFS_PATH := "user://push_prefs.cfg"
+var _notifications_enabled: bool = true
+
 func _ready() -> void:
 	_device_id = _stable_device_id()
+	_load_prefs()   # before any registration so the device doc reflects the saved choice
 	# Track sign-in so we can (re)register whenever a user is present.
 	FirebaseSocial.auth_changed.connect(_on_auth_changed)
 	_init_plugin()   # kicks off Core -> Messaging -> permission -> token (iOS only)
@@ -63,6 +71,25 @@ func clear_current_device_push_token(user_id: String) -> void:
 		return
 	await FirebaseSocial.disable_device(_device_id)
 
+## True when the user wants push (Settings → Notifications). Persisted across runs.
+func notifications_enabled() -> bool:
+	return _notifications_enabled
+
+## Apply the Settings → Notifications choice. Persists it and syncs the backend
+## device doc so sends start/stop immediately — independent of the iOS-level
+## permission (which only governs whether the OS will DISPLAY a delivered push).
+func set_notifications_enabled(enabled: bool) -> void:
+	if enabled == _notifications_enabled:
+		return
+	_notifications_enabled = enabled
+	_save_prefs()
+	if not FirebaseSocial.is_signed_in():
+		return  # nothing registered yet; the saved pref is applied at next register
+	if enabled:
+		await _try_register()                          # re-register with notificationsEnabled=true
+	elif not _device_id.is_empty():
+		await FirebaseSocial.disable_device(_device_id)  # flip the doc to false; keep the token
+
 # =============================================================================
 # Registration
 # =============================================================================
@@ -74,10 +101,24 @@ func _try_register() -> void:
 		platform = "ios",
 		deviceId = _device_id,
 		appVersion = _app_version(),
-		notificationsEnabled = true,
+		notificationsEnabled = _notifications_enabled,
 	})
 	if not ok:
 		push_registration_failed.emit("device push registration failed")
+
+# =============================================================================
+# Preference persistence (user://) — survives restarts so a disabled user stays
+# disabled until they turn it back on.
+# =============================================================================
+func _load_prefs() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(PREFS_PATH) == OK:
+		_notifications_enabled = bool(cfg.get_value("push", "notifications_enabled", true))
+
+func _save_prefs() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("push", "notifications_enabled", _notifications_enabled)
+	cfg.save(PREFS_PATH)
 
 func _on_auth_changed(user: Dictionary) -> void:
 	var uid := str(user.get("uid", ""))

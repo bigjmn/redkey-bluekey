@@ -313,7 +313,11 @@ func _apply_one(e: Dictionary, deferred: Array) -> void:
 		"player_move":
 			_player_node.set_facing(e["to"] - e["from"])
 			_queue_tween(_player_node, e["to"], Tuning.STEP_DURATION)
+		"dig":
+			Sfx.play("dig")                # Francis Scott cleared a dirt tile
 		"push", "fall":
+			if e["t"] == "push":
+				Sfx.play("drag")           # player shoved an object (not a gravity fall)
 			_relocate_occ(e["from"], e["to"])
 			if occ_nodes.has(e["to"]):
 				# A push slides over STEP_DURATION; a one-square fall drops quickly

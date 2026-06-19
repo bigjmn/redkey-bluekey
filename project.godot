@@ -13,7 +13,9 @@ config_version=5
 config/name="Acnos Style Mobile"
 run/main_scene="res://scenes/title_screen.tscn"
 config/features=PackedStringArray("4.6", "Mobile")
-config/icon="res://icon.svg"
+boot_splash/image="uid://dcf8mtb5jpiq1"
+config/icon="res://assets/rkbkicon.png"
+boot_splash/minimum_display_time=2000
 
 [autoload]
 

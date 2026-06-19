@@ -51,21 +51,21 @@ void fragment() {
 # highlighted call-out under the intro.
 const PAGES := [
 	{
-		title = "Francis Scott",
-		intro = "Meet Francis Scott. Swipe in any direction — or use the arrow keys — to move him one tile at a time. He's quick, so you can dart around hazards and shove objects out of the way.",
+		title = "The Basics",
+		intro = "Swipe in any direction — or use the arrow keys — to move Francis Scott one tile at a time. Swipe and hold to move rapidly in a given direction. ",
 		legend = [
-			{tiles = [{kind = "player"}], name = "Francis Scott", desc = "That's you. Steer him through each room to the exit."},
+			{tiles = [{kind = "player"}], name = "Francis Scott", desc = "That's you. The jetpack is what we call \"thematic consistency\". Steer him through each room to the exit."},
 			{tiles = [{kind = "teleporter"}], name = "Gate", desc = "The exit. Locked until both keys are inside — then step in to clear the level."},
 		],
-		goal = "Push the red and blue keys into the gate, then step inside to clear the level. Solve each one in as few tries as you can — getting crushed just sends you back to the start.",
+		goal = "Push the red and blue keys into the gate, then step inside to clear the level. Solve each one in as few tries as you can. Remeber - if you die in the game you die in real life",
 	},
 	{
 		title = "Objects",
-		intro = "Objects are loose items on the grid. Gravity pulls each one straight down, one square at a time, whenever the tile below is empty — pausing a beat on every square. Walk into an object to push it sideways if the tile beyond is clear. You can't push upward, or push something while it's falling.",
+		intro = "Objects are loose items on the grid. Gravity pulls each one straight down, one square at a time, whenever the tile below is empty. Move into an object to push it sideways if the tile beyond is clear. You can't push upward, or push something while it's falling.",
 		legend = [
 			{tiles = [{kind = "rock"}], name = "Rock", desc = "A heavy boulder. Shove it or drop it down shafts. A rock that falls onto Francis Scott crushes him."},
-			{tiles = [{kind = "barrel"}], name = "Barrel", desc = "Volatile. Blows up when something drops onto it, or when it lands after a fall — never from a sideways push. The blast clears a 3×3 area and chains to nearby barrels."},
-			{tiles = [{kind = "red_key"}, {kind = "blue_key"}], name = "Red & Blue Key", desc = "Push or drop both into the gate to unlock it. A key caught in a blast is lost — the level becomes unwinnable, so restart."},
+			{tiles = [{kind = "barrel"}], name = "Barrel", desc = "Volatile. Blows up when something drops onto it, or when it lands after a fall. The blast clears a 3×3 area sets off other barrels in the blast radius."},
+			{tiles = [{kind = "red_key"}, {kind = "blue_key"}], name = "Red & Blue Key", desc = "Push or drop both into the gate to unlock it. A key caught in a blast is lost, so be careful! Francis Scott needs those keys."},
 		],
 	},
 	{
@@ -75,7 +75,7 @@ const PAGES := [
 			{tiles = [{kind = "wall"}], name = "Wall", desc = "Solid steel. Blocks Francis Scott and every object. Indestructible."},
 			{tiles = [{kind = "breakable_wall"}], name = "Breakable Wall", desc = "Acts like a wall, but a barrel blast shatters it — detonate one nearby to open a path."},
 			{tiles = [{kind = "dirt"}], name = "Dirt", desc = "Soft ground. Walk into it to clear it. Objects rest on top, and blasts wipe it away."},
-			{tiles = [{kind = "flip_wall", active = true, caption = "Solid"}, {kind = "flip_wall", active = false, caption = "Open"}], name = "Toggle Wall", desc = "Two states: solid (a real wall) or faded (empty space you and objects pass through). A wall switch swaps them — but it won't flip while something sits inside a faded one, so nothing gets trapped."},
+			{tiles = [{kind = "flip_wall", active = true, caption = "Solid"}, {kind = "flip_wall", active = false, caption = "Open"}], name = "Toggle Wall", desc = "Two states: solid (a real wall) or faded (empty space you and objects pass through). A wall switch swaps them, unless an object blocks a faded wall."},
 		],
 	},
 	{
@@ -83,8 +83,8 @@ const PAGES := [
 		intro = "Special fixtures. They're all indestructible — blasts leave them untouched — and phaseable: Francis Scott and falling objects pass straight through them. Stand on a switch and a Switch button appears in the controls; press it to throw the switch.",
 		legend = [
 			{tiles = [{kind = "switch"}], name = "Wall Switch", desc = "Flips every toggle wall in the room at once."},
-			{tiles = [{kind = "gravity_switch", active = false, caption = "Off"}, {kind = "gravity_switch", active = true, caption = "On"}], name = "Gravity Switch", desc = "Reverses gravity. While it's on, every object falls UP instead of down — use it to lift rocks and keys to places you couldn't reach. Throw it again to drop them back down."},
-			{tiles = [{kind = "teleporter"}], name = "Gate", desc = "The exit. Stays locked (both locks shut) until both keys are delivered, then opens — step in to clear the level."},
+			{tiles = [{kind = "gravity_switch", active = false, caption = "Off"}, {kind = "gravity_switch", active = true, caption = "On"}], name = "Gravity Switch", desc = "Reverses gravity. While it's on, every object falls up instead of down (reverse-gravity style.) Use it to reverse gravity. Great for gravity reversal."},
+			{tiles = [{kind = "teleporter"}], name = "Gate", desc = "The exit. Stays locked (both locks shut) until both keys are delivered, then opens — step in to clear the level. It only requires one key of each color, though the level may have more than one."},
 		],
 	},
 ]

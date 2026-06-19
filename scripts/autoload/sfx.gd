@@ -17,6 +17,8 @@ const STREAMS := {
 	"switch": preload("res://assets/audio/switch.ogg"),
 	"gravityUp": preload("res://assets/audio/gravityUp.ogg"),
 	"gravityDown": preload("res://assets/audio/gravityDown.ogg"),
+	"dig": preload("res://assets/audio/dig.ogg"),     # Francis Scott clears a dirt tile
+	"drag": preload("res://assets/audio/drag.ogg"),   # Francis Scott pushes an object
 }
 const POOL_SIZE := 8
 

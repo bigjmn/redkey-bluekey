@@ -47,7 +47,7 @@ func _build() -> void:
 	root.offset_left = sa.left + 20
 	root.offset_right = -(sa.right + 20)
 	root.offset_top = sa.top + 24
-	root.offset_bottom = -(sa.bottom + 24)
+	root.offset_bottom = -(sa.bottom + 18)   # match the gear button's baseline (GearMenu pins it 18px up)
 
 	var title := Label.new()
 	title.text = "LEVEL SELECTOR"
@@ -120,8 +120,9 @@ func _make_cell(id: int) -> Control:
 	return cell
 
 func _bottom_bar() -> Control:
-	# Plain Control so the (square) "more soon" button can be centred on screen
-	# independent of the back button, which is pinned to the left.
+	# A bottom row whose buttons share ONE baseline with the global gear button
+	# (drawn by the GearMenu autoload, pinned to the screen's bottom-right): back
+	# bottom-left, "more soon" bottom-centre, gear bottom-right — all bottom-aligned.
 	var bar := Control.new()
 	# 60% screen width; height follows the banner's own aspect ratio (derived from
 	# the texture so it self-corrects if the art is re-cropped).
@@ -132,25 +133,22 @@ func _bottom_bar() -> Control:
 
 	# Play / Rules / Social / Level Editor all live on the title screen now; the
 	# selector just teases what's coming next.
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_child(center)
 	var more := TextureButton.new()
 	more.texture_normal = MORESOON
 	more.ignore_texture_size = true
 	more.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	more.custom_minimum_size = Vector2(btn_w, btn_h)
 	more.focus_mode = Control.FOCUS_NONE
+	more.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	more.pressed.connect(_open_more_soon)
-	center.add_child(more)
+	bar.add_child(more)
 
 	var back := Button.new()
 	back.text = "←"
 	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(96, 84)
 	back.add_theme_font_size_override("font_size", 40)
-	back.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
+	back.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
 	bar.add_child(back)
 	return bar
