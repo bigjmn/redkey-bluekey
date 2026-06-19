@@ -11,6 +11,7 @@ signal state_changed
 signal won
 signal lost(reason: String)
 signal became_unwinnable
+signal restarted   ## the level was reset in place (death/manual restart)
 
 var TILE: int = Tuning.TILE_SIZE
 
@@ -189,6 +190,7 @@ func restart() -> void:
 	_unwinnable_signaled = false
 	_end_dir()   # a death/restart shouldn't keep auto-repeating a held direction
 	_rebuild_all()
+	restarted.emit()       # lets the Game controller count this as another attempt
 	state_changed.emit()
 
 func _can_act() -> bool:

@@ -190,6 +190,22 @@ func disable_device(device_id: String) -> bool:
 	return not res.is_empty()
 
 # =============================================================================
+# Per-level progress (users/{uid}/levels/LEVEL_<n>). GameState owns the local
+# source of truth and calls these fire-and-forget; they return false on any
+# failure (offline / signed out) so GameState can keep the record queued.
+# =============================================================================
+func sync_level_progress(level_id: String, payload: Dictionary) -> bool:
+	if not await ensure_signed_in():
+		return false
+	var res: Dictionary = await client.set_level_progress(level_id, payload)
+	return not res.is_empty()
+
+func fetch_level_progress() -> Array:
+	if not await ensure_signed_in():
+		return []
+	return await client.get_level_progress()
+
+# =============================================================================
 # Friends
 # =============================================================================
 func refresh_friends() -> void:

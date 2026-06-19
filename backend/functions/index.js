@@ -198,6 +198,46 @@ app.get("/me/devices", async (req, res) => {
   res.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
 });
 
+// ---------------------------------------------------------------------------
+// Per-level progress  (users/{uid}/levels/LEVEL_<n>)  — attempts + cleared.
+// The client is offline-first: it owns the source of truth locally and pushes
+// here fire-and-forget. So the upsert is MONOTONIC (attempts only grow, cleared
+// only flips true) inside a transaction — out-of-order / replayed pushes can
+// never regress the stored values.
+// ---------------------------------------------------------------------------
+app.post("/me/progress/:levelId", async (req, res) => {
+  const levelId = String(req.params.levelId);
+  if (!/^LEVEL_\d+$/.test(levelId)) {
+    return res.status(400).json({ error: "levelId must look like LEVEL_<n>" });
+  }
+  const inAttempts = Math.max(0, Math.floor(Number(req.body.attempts) || 0));
+  const inCleared = req.body.cleared === true;
+  const inClearedAt = Math.max(0, Math.floor(Number(req.body.clearedAt) || 0));
+  await getOrCreateProfile(req.uid);
+  const ref = db.collection("users").doc(req.uid).collection("levels").doc(levelId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? snap.data() : {};
+    const attempts = Math.max(Number(cur.attempts) || 0, inAttempts);
+    const cleared = cur.cleared === true || inCleared;
+    // First clear wins; keep whatever timestamp is already recorded.
+    const clearedAt = Number(cur.clearedAt) || (inCleared ? inClearedAt : 0) || 0;
+    tx.set(ref, {
+      levelId,
+      attempts,
+      cleared,
+      clearedAt: clearedAt || null,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+  res.json({ ok: true });
+});
+
+app.get("/me/progress", async (req, res) => {
+  const snap = await db.collection("users").doc(req.uid).collection("levels").get();
+  res.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+});
+
 /**
  * Send a push to all of a user's notification-enabled devices and prune any
  * tokens FCM reports as invalid. Fire-and-forget: never block / fail the

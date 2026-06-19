@@ -29,10 +29,12 @@ func _ready() -> void:
 	# and rounded corner on iOS (insets are 0 on desktop).
 	var sa: Dictionary = SafeArea.insets()
 	gear.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	# 32px bottom margin so it shares the level-selector row's baseline (see
+	# level_select.gd _build/_bottom_bar — keep these in sync) and clears the edge.
 	gear.offset_right = -(18 + sa.right)
-	gear.offset_bottom = -(18 + sa.bottom)
-	gear.offset_left = -(90 + sa.right)   # 72px box
-	gear.offset_top = -(90 + sa.bottom)
+	gear.offset_bottom = -(32 + sa.bottom)
+	gear.offset_left = -(90 + sa.right)    # 72px box
+	gear.offset_top = -(104 + sa.bottom)   # 32 + 72
 	gear.pressed.connect(open)
 	holder.add_child(gear)
 

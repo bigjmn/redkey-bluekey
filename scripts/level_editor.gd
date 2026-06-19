@@ -147,18 +147,24 @@ func _tile_visual(glyph: String, size: float, cx: float, cy: float) -> CellVisua
 	cv.position = Vector2(cx, cy)
 	return cv
 
+const PAL_COLS := 7                   ## 14 items -> two even rows of seven
+const PAL_BTN := Vector2(92, 118)     ## tall enough for a two-line name ("Francis Scott")
+
 func _build_palette(parent: Control) -> void:
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 6)
-	flow.add_theme_constant_override("v_separation", 6)
-	parent.add_child(flow)
+	var center := CenterContainer.new()
+	parent.add_child(center)
+	var grid := GridContainer.new()
+	grid.columns = PAL_COLS
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	center.add_child(grid)
 	for item: Dictionary in PALETTE:
 		var glyph: String = item["g"]
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
 		b.toggle_mode = true
 		b.button_pressed = glyph == _selected
-		b.custom_minimum_size = Vector2(80, 92)
+		b.custom_minimum_size = PAL_BTN
 		b.clip_contents = true
 		b.tooltip_text = item["name"]
 		b.add_theme_stylebox_override("normal", _flat(C_BTN, 8))
@@ -166,17 +172,22 @@ func _build_palette(parent: Control) -> void:
 		b.add_theme_stylebox_override("pressed", _flat(C_SEL.darkened(0.25), 8))
 		b.pressed.connect(func(): _select_glyph(glyph))
 		# rendered tile in the upper area + name beneath
-		b.add_child(_tile_visual(glyph, 50.0, 40.0, 30.0))
+		b.add_child(_tile_visual(glyph, 50.0, PAL_BTN.x / 2.0, 32.0))
 		var name_lbl := Label.new()
 		name_lbl.text = item["name"]
 		name_lbl.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-		name_lbl.offset_top = -26
+		name_lbl.offset_top = -56    # room for up to two wrapped lines
+		name_lbl.offset_bottom = -8  # lift off the bottom edge so it isn't clipped
+		name_lbl.offset_left = 2
+		name_lbl.offset_right = -2
+		name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		name_lbl.add_theme_font_size_override("font_size", 16)
 		name_lbl.add_theme_color_override("font_color", C_TEXT)
 		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		b.add_child(name_lbl)
-		flow.add_child(b)
+		grid.add_child(b)
 		_palette_buttons[glyph] = b
 
 func _select_glyph(glyph: String) -> void:
@@ -414,7 +425,6 @@ func _do_playtest() -> void:
 	level.fit_to_rect(Rect2(vp.x * 0.05, vp.y * 0.12, vp.x * 0.9, vp.y * 0.72))
 	level.won.connect(func(): _on_playtest_won(level))
 	level.lost.connect(func(reason: String): _show_playtest_dead(level, "You died!", _death_body(reason)))
-	level.became_unwinnable.connect(func(): _show_playtest_dead(level, "Stuck!", "A gate key was destroyed — the level can't be finished."))
 
 	var stop := Button.new()
 	stop.text = "Stop Playtest"
@@ -522,10 +532,16 @@ func _open_share_dialog(tries: int) -> void:
 	_share_dialog.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_share_dialog)
 
+	# A CenterContainer centres the panel at its real (content-driven) size — unlike
+	# PRESET_CENTER, which anchors before the panel has sized itself and lands off-centre.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_share_dialog.add_child(center)
+
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _flat(C_PANEL, 16))
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_share_dialog.add_child(panel)
+	center.add_child(panel)
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(480, 0)
 	box.add_theme_constant_override("separation", 12)

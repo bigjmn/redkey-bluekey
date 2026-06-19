@@ -70,6 +70,26 @@ func disable_device(device_id: String) -> Dictionary:
 		return await _mock_result({ok = true})
 	return await _call_dict(HTTPClient.METHOD_POST, "/me/devices/%s/disable" % device_id)
 
+## Upsert per-level progress (attempts + cleared) at users/{uid}/levels/<level_id>.
+## `level_id` is the doc id, e.g. "LEVEL_3". Offline-first: GameState pushes here
+## fire-and-forget and the backend merges monotonically.
+func set_level_progress(level_id: String, payload: Dictionary) -> Dictionary:
+	if SocialConfig.USE_MOCK_API:
+		var doc: Dictionary = payload.duplicate(true)
+		doc["levelId"] = level_id
+		_mock.level_progress[level_id] = doc
+		return await _mock_result({ok = true})
+	return await _call_dict(HTTPClient.METHOD_POST, "/me/progress/%s" % level_id, payload)
+
+## List the caller's per-level progress docs.
+func get_level_progress() -> Array:
+	if SocialConfig.USE_MOCK_API:
+		var out: Array = []
+		for k: String in _mock.level_progress:
+			out.append(_mock.level_progress[k].duplicate(true))
+		return await _mock_result(out)
+	return await _call_array(HTTPClient.METHOD_GET, "/me/progress")
+
 func get_friends() -> Array:
 	if SocialConfig.USE_MOCK_API:
 		return await _mock_result(_mock.friends.duplicate(true))
@@ -229,6 +249,7 @@ func _mock_result(value: Variant) -> Variant:
 # =============================================================================
 var _mock: Dictionary = {
 	devices = {},   ## deviceId -> device doc (push registration)
+	level_progress = {},   ## "LEVEL_<n>" -> {levelId, attempts, cleared, clearedAt}
 	profile = {
 		uid = "mock-uid-1",
 		displayName = "Francis Scott",

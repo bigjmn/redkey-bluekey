@@ -67,8 +67,10 @@ func set_active(v: bool) -> void:
 		queue_redraw()
 
 func set_facing(dir: Vector2i) -> void:
-	if dir != Vector2i.ZERO and dir != facing:
-		facing = dir
+	# Only horizontal movement turns Francis Scott; moving up or down keeps his
+	# current facing (the art only ever mirrors left/right).
+	if dir.x != 0 and dir.x != facing.x:
+		facing = Vector2i(dir.x, 0)
 		queue_redraw()
 
 func _draw() -> void:

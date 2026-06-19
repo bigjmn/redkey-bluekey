@@ -23,7 +23,18 @@ var _instr: Node = null
 var _settings: Node = null
 var _frames: int = 0
 
+## Booting game.tscn (and the level-progress test) writes user://progress.cfg, so
+## back up the real save and restore it on exit — tests must not clobber progress.
+const _PROGRESS_SAVE := "user://progress.cfg"
+var _progress_backup: PackedByteArray = PackedByteArray()
+var _had_progress := false
+
 func _initialize() -> void:
+	if FileAccess.file_exists(_PROGRESS_SAVE):
+		var f := FileAccess.open(_PROGRESS_SAVE, FileAccess.READ)
+		if f != null:
+			_progress_backup = f.get_buffer(f.get_length())
+			_had_progress = true
 	_t("level_drive_push_restart", test_level_drive)
 	_t("hold_to_move_autorepeat", test_hold_to_move_autorepeat)
 	_t("switch_and_flip_wall_scene", test_switch_scene)
@@ -67,17 +78,28 @@ func _process(_delta: float) -> bool:
 		_run_async_tests()   # social layer awaits frames; tallied when done
 	if not _async_done:
 		return false
+	_restore_progress()
 	print("\n========================================")
 	print("RENDER SMOKE: %d passed, %d failed" % [_passed, _failed])
 	print("========================================")
 	quit(1 if _failed > 0 else 0)
 	return true
 
+## Put the player's real progress.cfg back the way the tests found it.
+func _restore_progress() -> void:
+	if _had_progress:
+		var w := FileAccess.open(_PROGRESS_SAVE, FileAccess.WRITE)
+		if w != null:
+			w.store_buffer(_progress_backup)
+	elif FileAccess.file_exists(_PROGRESS_SAVE):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_PROGRESS_SAVE))
+
 ## Awaitable tests (the social mock API yields a frame per call).
 func _run_async_tests() -> void:
 	await _t_async("social_mock_flow", test_social_mock_flow)
 	await _t_async("social_screens_build", test_social_screens)
 	await _t_async("push_service", test_push)
+	await _t_async("level_progress_sync", test_level_progress)
 	_async_done = true
 
 func _t(name: String, fn: Callable) -> void:
@@ -330,6 +352,47 @@ func test_push() -> void:
 		push._save_prefs()
 	else:
 		_check(true, "live mode — device backend round-trip skipped")
+
+func test_level_progress() -> void:
+	var gs: Node = root.get_node_or_null("GameState")
+	if gs == null:
+		_check(false, "GameState autoload present")
+		return
+	var orig_levels: Dictionary = gs._levels.duplicate(true)
+	var orig_unsynced: Dictionary = gs._unsynced.duplicate(true)
+	const TID := 99001   # a test-only id that isn't a real level
+	# Local persistence (no network): a per-level record survives save -> load.
+	gs._levels[TID] = {attempts = 7, cleared = true, cleared_at = 123, updated_at = 456}
+	gs.save_progress()
+	gs._levels = {}
+	gs.load_progress()
+	_check(gs.level_attempts(TID) == 7 and gs.is_level_cleared(TID),
+		"per-level attempts + cleared persist locally across save/load")
+	# Accumulation + backend round-trip — meaningful only against the fake API.
+	if SocialConfig.USE_MOCK_API:
+		var fs: Node = root.get_node_or_null("FirebaseSocial")
+		await fs.ensure_signed_in()
+		gs._levels.erase(TID)
+		gs._unsynced.clear()
+		var a1: int = gs.bump_attempt(TID)
+		var a2: int = gs.bump_attempt(TID)
+		_check(a1 == 1 and a2 == 2, "attempts accumulate per level across entries")
+		for _i: int in range(4):
+			await process_frame   # let the fire-and-forget pushes land
+		var docs: Array = await fs.fetch_level_progress()
+		var key := "LEVEL_%d" % TID
+		var doc: Dictionary = {}
+		for d: Dictionary in docs:
+			if str(d.get("levelId", "")) == key:
+				doc = d
+		_check(int(doc.get("attempts", 0)) == 2, "progress synced to the (mock) backend")
+		_check(gs._unsynced.is_empty(), "synced records leave the offline queue")
+	else:
+		_check(true, "live mode — accumulation/backend round-trip skipped")
+	# Restore the real progress so the test doesn't clobber it.
+	gs._levels = orig_levels
+	gs._unsynced = orig_unsynced
+	gs.save_progress()
 
 func test_social_screens() -> void:
 	if not SocialConfig.USE_MOCK_API:

@@ -46,6 +46,8 @@ All responses are JSON. Error responses: appropriate 4xx/5xx with
 | POST | `/challenges/{challengeId}/complete` | `{"result": {...}}` | updated challenge (`completed`) |
 | POST | `/me/devices` | `{fcmToken, deviceId, platform, appVersion}` | `{ok:true}` — upsert this device's push token (one doc per device) |
 | POST | `/me/devices/{deviceId}/disable` | — | `{ok:true}` — set `notificationsEnabled=false` (logout/account switch) |
+| POST | `/me/progress/{levelId}` | `{attempts, cleared, clearedAt}` | `{ok:true}` — upsert per-level progress. `levelId` is `LEVEL_<n>`. **Monotonic merge**: stored `attempts = max(stored, incoming)`, `cleared` only flips false→true, first `clearedAt` wins. Lets the offline-first client push fire-and-forget / replay safely. |
+| GET | `/me/progress` | — | array of the caller's per-level progress docs |
 
 ### Profile shape
 
@@ -88,6 +90,13 @@ users/{uid}
 users/{uid}/devices/{deviceId}            // push targets — many per user
   fcmToken, platform: "ios"|"android", deviceId, appVersion
   lastUpdated, notificationsEnabled: true
+
+users/{uid}/levels/LEVEL_<n>              // per-level progress (one per level)
+  levelId: "LEVEL_<n>", attempts: int (cumulative across sessions),
+  cleared: bool, clearedAt: int|null (unix sec), updatedAt
+  // Offline-first: the client owns the source of truth locally (user://progress.cfg)
+  // and pushes here fire-and-forget; the backend merges monotonically so an offline
+  // backlog can replay in any order on reconnect without regressing.
 
 friendRequests/{requestId}
   fromUserId, toUserId, fromDisplayName, toDisplayName

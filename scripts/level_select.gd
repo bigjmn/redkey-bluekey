@@ -18,7 +18,6 @@ const CELL := Vector2(200, 210)
 
 const C_TEXT := Color("fdf6e3")
 const C_ACCENT := Color("ffe08a")
-const C_STAR := Color("ffcc33")
 
 func _ready() -> void:
 	if GameState.level_count() == 0:
@@ -47,7 +46,7 @@ func _build() -> void:
 	root.offset_left = sa.left + 20
 	root.offset_right = -(sa.right + 20)
 	root.offset_top = sa.top + 24
-	root.offset_bottom = -(sa.bottom + 18)   # match the gear button's baseline (GearMenu pins it 18px up)
+	root.offset_bottom = -(sa.bottom + 32)   # padding under the bottom row; matches the gear baseline (gear_menu.gd)
 
 	var title := Label.new()
 	title.text = "LEVEL SELECTOR"
@@ -105,31 +104,33 @@ func _make_cell(id: int) -> Control:
 	num.add_theme_constant_override("outline_size", 8)
 	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cell.add_child(num)
-
-	if unlocked:
-		var stars := Label.new()
-		stars.text = "★★★"
-		stars.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-		stars.offset_top = -38
-		stars.offset_bottom = 2
-		stars.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		stars.add_theme_font_size_override("font_size", 32)
-		stars.add_theme_color_override("font_color", C_STAR if completed else Color(0, 0, 0, 0.35))
-		stars.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		cell.add_child(stars)
 	return cell
 
+const GEAR_SLOT := 72   ## footprint reserved for the global gear button (gear_menu.gd)
+
 func _bottom_bar() -> Control:
-	# A bottom row whose buttons share ONE baseline with the global gear button
-	# (drawn by the GearMenu autoload, pinned to the screen's bottom-right): back
-	# bottom-left, "more soon" bottom-centre, gear bottom-right — all bottom-aligned.
-	var bar := Control.new()
-	# 60% screen width; height follows the banner's own aspect ratio (derived from
-	# the texture so it self-corrects if the art is re-cropped).
+	# One evenly-spaced, bottom-aligned row: back (left), "more soon" (centre), and
+	# a reserved slot on the right that the global gear button (GearMenu autoload,
+	# pinned bottom-right) sits over. Two expanding spacers give the three items
+	# equal gaps. Half-screen-width banner; height follows its own aspect ratio.
 	var vp: Vector2 = get_viewport().get_visible_rect().size
-	var btn_w: float = vp.x * 0.6
-	var btn_h: float = btn_w * float(MORESOON.get_height()) / float(MORESOON.get_width())
-	bar.custom_minimum_size = Vector2(0, btn_h)
+	var more_w: float = vp.x * 0.5
+	var more_h: float = more_w * float(MORESOON.get_height()) / float(MORESOON.get_width())
+
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 0)
+	bar.custom_minimum_size = Vector2(0, more_h)
+
+	var back := Button.new()
+	back.text = "←"
+	back.focus_mode = Control.FOCUS_NONE
+	back.custom_minimum_size = Vector2(96, 84)
+	back.size_flags_vertical = Control.SIZE_SHRINK_END   # sit on the row's baseline
+	back.add_theme_font_size_override("font_size", 40)
+	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
+	bar.add_child(back)
+
+	bar.add_child(_hspacer())
 
 	# Play / Rules / Social / Level Editor all live on the title screen now; the
 	# selector just teases what's coming next.
@@ -137,21 +138,27 @@ func _bottom_bar() -> Control:
 	more.texture_normal = MORESOON
 	more.ignore_texture_size = true
 	more.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	more.custom_minimum_size = Vector2(btn_w, btn_h)
+	more.custom_minimum_size = Vector2(more_w, more_h)
 	more.focus_mode = Control.FOCUS_NONE
-	more.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	more.size_flags_vertical = Control.SIZE_SHRINK_END
 	more.pressed.connect(_open_more_soon)
 	bar.add_child(more)
 
-	var back := Button.new()
-	back.text = "←"
-	back.focus_mode = Control.FOCUS_NONE
-	back.custom_minimum_size = Vector2(96, 84)
-	back.add_theme_font_size_override("font_size", 40)
-	back.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
-	bar.add_child(back)
+	bar.add_child(_hspacer())
+
+	# Invisible slot the global gear overlays, so the row reads as three even items.
+	var gear_slot := Control.new()
+	gear_slot.custom_minimum_size = Vector2(GEAR_SLOT, 84)
+	gear_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(gear_slot)
 	return bar
+
+## A horizontal expanding gap, used to space the bottom-row items evenly.
+func _hspacer() -> Control:
+	var s := Control.new()
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return s
 
 func _open_instructions() -> void:
 	add_child(Instructions.new())

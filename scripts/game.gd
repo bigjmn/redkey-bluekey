@@ -78,9 +78,19 @@ func load_level(level: LevelData) -> void:
 	_level.state_changed.connect(_refresh_hud)
 	_level.won.connect(_on_won)
 	_level.lost.connect(_on_lost)
-	_level.became_unwinnable.connect(_on_unwinnable)
+	_level.restarted.connect(_on_level_restarted)
+	# Entering the level is the start of a new try; the count is cumulative across
+	# sessions (persisted + synced by GameState), so leaving and coming back keeps
+	# growing it rather than resetting to 1.
+	_level.attempts = GameState.bump_attempt(level.id)
 	_relayout()
 	_refresh_hud()
+
+## Each in-place restart (death/manual) of a regular level is another attempt.
+func _on_level_restarted() -> void:
+	var lvl: LevelData = GameState.current_level()
+	if lvl != null:
+		_level.attempts = GameState.bump_attempt(lvl.id)
 
 ## Play a friend's challenge: build the board from its layout and report the
 ## result back to the backend on a clear (the server decides the winner).
@@ -104,7 +114,6 @@ func load_challenge(challenge: Dictionary) -> void:
 	_level.state_changed.connect(_refresh_hud)
 	_level.won.connect(_on_challenge_won)
 	_level.lost.connect(_on_lost)
-	_level.became_unwinnable.connect(_on_unwinnable)
 	_relayout()
 	_refresh_hud()
 
@@ -129,12 +138,6 @@ func _on_won() -> void:
 func _on_lost(reason: String) -> void:
 	_show_message("Oops!", _death_text(reason), [
 		{text = "Try Again", cb = _retry},
-		{text = "Levels", cb = _go_to_select},
-	])
-
-func _on_unwinnable() -> void:
-	_show_message("Stuck!", "A gate key was destroyed — the level can't be finished.", [
-		{text = "Restart", cb = _retry},
 		{text = "Levels", cb = _go_to_select},
 	])
 
