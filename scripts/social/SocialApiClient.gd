@@ -15,8 +15,7 @@ extends Node
 ##   POST   /friends/requests/{requestId}/respond   {accept}
 ##   GET    /challenges
 ##   POST   /challenges                             {toUserId, payload}
-##   POST   /challenges/{challengeId}/respond       {accept}
-##   POST   /challenges/{challengeId}/complete      {result}
+##   POST   /challenges/{challengeId}/complete      {result:{attempts}}
 ##
 ## All calls send:  Authorization: Bearer <firebase id token>
 ##                  Content-Type: application/json
@@ -142,29 +141,21 @@ func create_challenge(to_user_id: String, payload: Dictionary) -> Dictionary:
 			id = "ch-out-%d" % (_mock.challenges.size() + 1),
 			fromUserId = _mock.profile.uid, fromDisplayName = _mock.profile.displayName,
 			toUserId = to_user_id, toDisplayName = to_name,
-			status = "pending", payload = payload,
+			status = "incomplete", payload = payload, result = null,
 		}
 		_mock.challenges.append(ch)
 		return await _mock_result(ch.duplicate(true))
 	return await _call_dict(HTTPClient.METHOD_POST, "/challenges", {toUserId = to_user_id, payload = payload})
 
-func respond_to_challenge(challenge_id: String, accept: bool) -> Dictionary:
-	if SocialConfig.USE_MOCK_API:
-		for ch: Dictionary in _mock.challenges:
-			if ch.id == challenge_id:
-				ch.status = "accepted" if accept else "declined"
-				return await _mock_result(ch.duplicate(true))
-		return await _mock_result({})
-	return await _call_dict(HTTPClient.METHOD_POST,
-		"/challenges/%s/respond" % challenge_id, {accept = accept})
-
-## `result` is advisory — the backend re-validates and decides the winner.
+## Mark a received challenge complete. `result` carries the recipient's attempt
+## count ({attempts}); the backend clamps it. Challenges are complete/incomplete,
+## not won/lost — there's no winner.
 func complete_challenge(challenge_id: String, result: Dictionary) -> Dictionary:
 	if SocialConfig.USE_MOCK_API:
 		for ch: Dictionary in _mock.challenges:
 			if ch.id == challenge_id:
 				ch.status = "completed"
-				ch.result = result
+				ch.result = {attempts = int(result.get("attempts", 0)), completedBy = ch.toUserId}
 				return await _mock_result(ch.duplicate(true))
 		return await _mock_result({})
 	return await _call_dict(HTTPClient.METHOD_POST,
@@ -255,7 +246,7 @@ var _mock: Dictionary = {
 		displayName = "Francis Scott",
 		friendCode = "FS-2486",
 		createdAt = "2026-06-12T00:00:00Z",
-		stats = {levelsCleared = 3, challengesWon = 1},
+		stats = {levelsCleared = 3, challengesCompleted = 1},
 		postedLevels = [],
 	},
 	friends = [
@@ -269,13 +260,14 @@ var _mock: Dictionary = {
 	],
 	challenges = [
 		{id = "ch-in-1", fromUserId = "mock-uid-2", fromDisplayName = "Rocky",
-			toUserId = "mock-uid-1", toDisplayName = "Francis Scott", status = "pending",
+			toUserId = "mock-uid-1", toDisplayName = "Francis Scott", status = "incomplete", result = null,
 			payload = {
 				levelId = "rocky-custom-1", seed = 0, scoreToBeat = 0, triesToBeat = 2,
 				layout = "########\n#A.....#\n#.1.2..#\n#..T...#\n########",
 			}},
 		{id = "ch-out-1", fromUserId = "mock-uid-1", fromDisplayName = "Francis Scott",
-			toUserId = "mock-uid-3", toDisplayName = "Barrelina", status = "pending",
-			payload = {levelId = "my-custom-1", seed = 0, scoreToBeat = 0, triesToBeat = 1, layout = ""}},
+			toUserId = "mock-uid-3", toDisplayName = "Barrelina", status = "incomplete", result = null,
+			payload = {levelId = "my-custom-1", seed = 0, scoreToBeat = 0, triesToBeat = 1,
+				layout = "#######\n#A..R.#\n#..#..#\n#.1T2.#\n#######"}},
 	],
 }

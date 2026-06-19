@@ -299,14 +299,20 @@ func test_social_mock_flow() -> void:
 	await fs.respond_to_friend_request(rid, true)
 	_check(fs.friends.size() == 3, "accepting a request adds a friend")
 	await fs.refresh_challenges()
-	_check(fs.incoming_challenges().size() == 1, "one incoming challenge")
-	_check(fs.outgoing_challenges().size() == 1, "one outgoing challenge")
-	var ch: Dictionary = fs.incoming_challenges()[0]
-	_check(LevelLoader.validate(str(ch.payload.get("layout", ""))) == "", "incoming challenge layout is playable")
-	# Accept then complete it; the client reports tries, backend decides winner.
-	await fs.respond_to_challenge(ch.id, true)
-	await fs.complete_challenge(ch.id, {tries = 2})
-	_check(fs.completed_challenges().size() == 1, "completing a challenge moves it to completed")
+	_check(fs.active_challenges().size() == 1, "one active (received) challenge")
+	_check(fs.sent_challenges().size() == 1, "one sent challenge")
+	var ch: Dictionary = fs.active_challenges()[0]
+	_check(LevelLoader.validate(str(ch.payload.get("layout", ""))) == "", "active challenge layout is playable")
+	# Complete it directly (no accept/decline) — the recipient reports their attempts.
+	await fs.complete_challenge(ch.id, {attempts = 4})
+	var done: Array = fs.completed_challenges()
+	_check(done.size() == 1, "completing a challenge moves it to completed")
+	_check(int((done[0].get("result", {}) as Dictionary).get("attempts", 0)) == 4,
+		"completed challenge records the recipient's attempts")
+	# Multi-send: challenge several friends at once.
+	var sent: int = await fs.create_challenges([fs.friends[0].get("uid"), fs.friends[1].get("uid")],
+		{levelId = "multi", seed = 0, scoreToBeat = 0, triesToBeat = 1, layout = "###\n#A#\n###"})
+	_check(sent == 2, "create_challenges sends to every selected friend")
 	_check(await fs.post_level_to_profile({levelId = "smoke", layout = "", triesToBeat = 1}),
 		"posting a level to the profile succeeds")
 

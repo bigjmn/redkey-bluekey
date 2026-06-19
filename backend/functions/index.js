@@ -123,7 +123,7 @@ async function getOrCreateProfile(uid) {
     friendCode: await uniqueFriendCode(),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
-    stats: { levelsCleared: 0, challengesWon: 0 },
+    stats: { levelsCleared: 0, challengesCompleted: 0 },
     postedLevels: [],
   };
   await ref.create(profile); // create() so a concurrent first-call can't clobber
@@ -406,7 +406,8 @@ app.post("/challenges", async (req, res) => {
     toUserId,
     fromDisplayName: me.displayName,
     toDisplayName: target.get("displayName"),
-    status: "pending",
+    // Challenges aren't won/lost — they're incomplete until the recipient finishes.
+    status: "incomplete",
     payload,
     result: null,
     createdAt: FieldValue.serverTimestamp(),
@@ -418,31 +419,11 @@ app.post("/challenges", async (req, res) => {
   res.json({ id: ref.id, ...(await ref.get()).data() });
 });
 
-app.post("/challenges/:id/respond", async (req, res) => {
-  const accept = req.body.accept === true;
-  const ref = db.collection("challenges").doc(req.params.id);
-  try {
-    const updated = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) throw { status: 404, error: "Challenge not found" };
-      const c = snap.data();
-      if (c.toUserId !== req.uid) throw { status: 403, error: "Only the recipient may respond" };
-      if (c.status !== "pending") throw { status: 409, error: "Challenge already resolved" };
-      const status = accept ? "accepted" : "declined";
-      tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp() });
-      return { id: snap.id, ...c, status };
-    });
-    res.json(updated);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.error || "Internal error" });
-  }
-});
-
+// Mark a received challenge complete. There's no winner/loser — we just record
+// how many attempts the recipient took (clamped, never trusted raw) and surface
+// it to both sides. The sender gets a push so they know it was finished.
 app.post("/challenges/:id/complete", async (req, res) => {
-  // The client's result is ADVISORY ({tries}); the winner is decided here by
-  // comparing against the sender's recorded triesToBeat. Move-by-move replay
-  // validation is future work — until then tries is clamped, never trusted raw.
-  const tries = clampTries((req.body.result || {}).tries);
+  const attempts = clampTries((req.body.result || {}).attempts);
   const ref = db.collection("challenges").doc(req.params.id);
   try {
     const updated = await db.runTransaction(async (tx) => {
@@ -450,20 +431,17 @@ app.post("/challenges/:id/complete", async (req, res) => {
       if (!snap.exists) throw { status: 404, error: "Challenge not found" };
       const c = snap.data();
       if (c.toUserId !== req.uid) throw { status: 403, error: "Only the recipient may complete" };
-      if (c.status !== "accepted") throw { status: 409, error: "Challenge must be accepted first" };
-      const senderTries = clampTries(c.payload.triesToBeat);
-      const winnerUserId = tries <= senderTries ? c.toUserId : c.fromUserId;
-      const result = {
-        winnerUserId,
-        fromResult: { tries: senderTries },
-        toResult: { tries },
-      };
+      if (c.status === "completed") throw { status: 409, error: "Challenge already completed" };
+      const result = { attempts, completedBy: req.uid };
       tx.update(ref, { status: "completed", result, updatedAt: FieldValue.serverTimestamp() });
-      tx.update(db.collection("users").doc(winnerUserId), {
-        "stats.challengesWon": FieldValue.increment(1),
+      tx.update(db.collection("users").doc(req.uid), {
+        "stats.challengesCompleted": FieldValue.increment(1),
       });
       return { id: snap.id, ...c, status: "completed", result };
     });
+    notifyUser(updated.fromUserId,
+      { title: "Challenge complete!", body: `${updated.toDisplayName} completed your challenge in ${attempts} ${attempts === 1 ? "attempt" : "attempts"}` },
+      { type: "challenge", challengeId: updated.id });
     res.json(updated);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.error || "Internal error" });

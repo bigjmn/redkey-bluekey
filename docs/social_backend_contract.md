@@ -42,8 +42,7 @@ All responses are JSON. Error responses: appropriate 4xx/5xx with
 | POST | `/friends/requests/{requestId}/respond` | `{"accept": true\|false}` | updated friendRequest (creates the friendship server-side on accept) |
 | GET | `/challenges` | — | `[challenge]` where caller is `fromUserId` or `toUserId` |
 | POST | `/challenges` | `{"toUserId": "...", "payload": {...}}` | created challenge |
-| POST | `/challenges/{challengeId}/respond` | `{"accept": true\|false}` | updated challenge (`accepted`/`declined`) |
-| POST | `/challenges/{challengeId}/complete` | `{"result": {...}}` | updated challenge (`completed`) |
+| POST | `/challenges/{challengeId}/complete` | `{"result": {"attempts": N}}` | mark complete (recipient only). Records attempts; pushes the sender. No accept/decline step. |
 | POST | `/me/devices` | `{fcmToken, deviceId, platform, appVersion}` | `{ok:true}` — upsert this device's push token (one doc per device) |
 | POST | `/me/devices/{deviceId}/disable` | — | `{ok:true}` — set `notificationsEnabled=false` (logout/account switch) |
 | POST | `/me/progress/{levelId}` | `{attempts, cleared, clearedAt}` | `{ok:true}` — upsert per-level progress. `levelId` is `LEVEL_<n>`. **Monotonic merge**: stored `attempts = max(stored, incoming)`, `cleared` only flips false→true, first `clearedAt` wins. Lets the offline-first client push fire-and-forget / replay safely. |
@@ -55,7 +54,7 @@ All responses are JSON. Error responses: appropriate 4xx/5xx with
 {
   "uid": "...", "displayName": "...", "friendCode": "FS-2486",
   "createdAt": "...", "updatedAt": "...",
-  "stats": {"levelsCleared": 0, "challengesWon": 0},
+  "stats": {"levelsCleared": 0, "challengesCompleted": 0},
   "postedLevels": [ {payload…} ]
 }
 ```
@@ -72,14 +71,16 @@ All responses are JSON. Error responses: appropriate 4xx/5xx with
 }
 ```
 
-### Result shape (advisory from client)
+### Completion result shape (from the recipient)
 
 ```json
-{"tries": 2}
+{"attempts": 3}
 ```
 
-The backend computes `result.winnerUserId` by comparing the receiver's tries
-against `payload.triesToBeat` — **never trust a client-provided winner**.
+Challenges aren't won or lost — only **complete or incomplete**. On completion the
+backend clamps `attempts` (never trusts it raw), stores
+`result = {attempts, completedBy}`, bumps the recipient's `stats.challengesCompleted`,
+and pushes the sender. Both sides then see the same completed challenge.
 
 ## 3. Firestore data model
 
@@ -109,9 +110,9 @@ friendships/{friendshipId}
 
 challenges/{challengeId}
   fromUserId, toUserId, fromDisplayName, toDisplayName
-  status: "pending" | "accepted" | "completed" | "expired" | "declined"
+  status: "incomplete" | "completed"      // no won/lost, no accept/decline
   payload: { levelId, seed, scoreToBeat, triesToBeat, layout }
-  result:  { winnerUserId, fromResult, toResult }
+  result:  { attempts, completedBy } | null
   createdAt, updatedAt
 ```
 
@@ -125,13 +126,14 @@ challenges/{challengeId}
   takes a code, not a uid). Codes must be unique; regenerate on collision.
 - Users **cannot create friendships directly** — a friendship document is only
   written by the backend when the *recipient* accepts a pending request.
-- Only the recipient (`toUserId`) of a request/challenge may respond to it.
+- Only the recipient (`toUserId`) of a friend request may respond to it.
 - Challenges may only be created **between accepted friends** (check a
-  friendship doc exists for the pair).
-- Challenge completion: only the recipient may complete; only from status
-  `accepted`; the backend validates the layout/result and decides the winner.
-  Replay validation (move-by-move) is future work — until then treat `tries`
-  as semi-trusted and clamp to sane ranges.
+  friendship doc exists for the pair). One challenge per recipient; the editor's
+  multi-select sends one create call per selected friend.
+- Challenge completion: only the recipient may complete, only while `incomplete`
+  (re-complete → 409). There's no winner — the backend records `attempts`
+  (clamped, never trusted raw) and pushes the sender. Replay validation
+  (move-by-move) is future work.
 - `POST /me/levels` must run the same layout validation as challenges
   (exactly one `A`, ≥1 `T`, one `1`, one `2`, bounded size) to keep posted
   levels playable and non-abusive.

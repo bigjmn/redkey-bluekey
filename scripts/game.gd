@@ -86,11 +86,15 @@ func load_level(level: LevelData) -> void:
 	_relayout()
 	_refresh_hud()
 
-## Each in-place restart (death/manual) of a regular level is another attempt.
+## Each in-place restart (death/manual) is another attempt — for both regular
+## levels and challenges, the count is cumulative.
 func _on_level_restarted() -> void:
-	var lvl: LevelData = GameState.current_level()
-	if lvl != null:
-		_level.attempts = GameState.bump_attempt(lvl.id)
+	if not _challenge.is_empty():
+		_level.attempts = GameState.bump_challenge_attempt(str(_challenge.get("id", "")))
+	else:
+		var lvl: LevelData = GameState.current_level()
+		if lvl != null:
+			_level.attempts = GameState.bump_attempt(lvl.id)
 
 ## Play a friend's challenge: build the board from its layout and report the
 ## result back to the backend on a clear (the server decides the winner).
@@ -114,15 +118,18 @@ func load_challenge(challenge: Dictionary) -> void:
 	_level.state_changed.connect(_refresh_hud)
 	_level.won.connect(_on_challenge_won)
 	_level.lost.connect(_on_lost)
+	_level.restarted.connect(_on_level_restarted)
+	# Challenges track attempts like normal levels — cumulative across leave/return.
+	_level.attempts = GameState.bump_challenge_attempt(str(challenge.get("id", "")))
 	_relayout()
 	_refresh_hud()
 
 func _on_challenge_won() -> void:
-	var tries: int = _level.attempts
-	FirebaseSocial.complete_challenge(str(_challenge.get("id", "")), {tries = tries})
-	var word := "try" if tries == 1 else "tries"
+	var n: int = _level.attempts
+	FirebaseSocial.complete_challenge(str(_challenge.get("id", "")), {attempts = n})
+	var word := "attempt" if n == 1 else "attempts"
 	_show_message("Challenge complete!",
-		"You cleared %s's challenge in %d %s!" % [_challenge.get("fromDisplayName", "a friend"), tries, word], [
+		"You completed the puzzle from %s in %d %s!" % [_challenge.get("fromDisplayName", "a friend"), n, word], [
 		{text = "Back to Challenges", cb = _go_to_challenges},
 	])
 

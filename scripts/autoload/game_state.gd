@@ -30,6 +30,11 @@ var instructions_seen: bool = false
 var _levels: Dictionary = {}
 var _unsynced: Dictionary = {}
 
+## Per-challenge attempt counts (challengeId -> int). Tracked like level attempts —
+## cumulative across leave/return — but only reported to the backend when the
+## challenge is completed, so it's local-only (no sync queue).
+var _challenge_attempts: Dictionary = {}
+
 func _ready() -> void:
 	reload_levels()
 	load_progress()
@@ -51,6 +56,7 @@ func load_progress() -> void:
 		_unsynced = {}
 		for id: int in cfg.get_value("levels", "unsynced", []):
 			_unsynced[id] = true
+		_challenge_attempts = cfg.get_value("challenges", "attempts", {})
 
 func save_progress() -> void:
 	var cfg := ConfigFile.new()
@@ -58,6 +64,7 @@ func save_progress() -> void:
 	cfg.set_value("progress", "instructions_seen", instructions_seen)
 	cfg.set_value("levels", "data", _levels)
 	cfg.set_value("levels", "unsynced", _unsynced.keys())
+	cfg.set_value("challenges", "attempts", _challenge_attempts)
 	cfg.save(SAVE_PATH)
 
 ## Remember that the how-to-play screen has been shown (so it won't auto-popup again).
@@ -135,6 +142,20 @@ func mark_level_cleared(id: int) -> void:
 	_unsynced[id] = true
 	save_progress()
 	_sync_level(id)
+
+# =============================================================================
+# Challenge attempts — local-only, cumulative across leave/return. Reported to the
+# backend only when the challenge is completed (see game.gd _on_challenge_won).
+# =============================================================================
+func challenge_attempts(cid: String) -> int:
+	return int(_challenge_attempts.get(cid, 0))
+
+## Count the start of a new try at challenge `cid`. Returns the cumulative count.
+func bump_challenge_attempt(cid: String) -> int:
+	var n := challenge_attempts(cid) + 1
+	_challenge_attempts[cid] = n
+	save_progress()
+	return n
 
 # =============================================================================
 # Backend sync — fire-and-forget + offline-resilient. Local data is authoritative;

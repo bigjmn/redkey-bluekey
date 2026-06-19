@@ -515,7 +515,8 @@ func _on_playtest_won(level: Node2D) -> void:
 	_open_share_dialog(tries)
 
 var _share_dialog: Control = null
-var _share_pick: OptionButton = null
+var _friends_list: VBoxContainer = null   ## holds one CheckBox per friend
+var _friend_checks: Array = []            ## [{check: CheckBox, uid: String}]
 
 ## The challenge/post payload for the just-beaten board (contract shape).
 func _share_payload(tries: int) -> Dictionary:
@@ -553,36 +554,67 @@ func _open_share_dialog(tries: int) -> void:
 	head.add_theme_font_size_override("font_size", 30)
 	box.add_child(head)
 
-	_share_pick = OptionButton.new()
-	_share_pick.custom_minimum_size = Vector2(0, 56)
-	_share_pick.focus_mode = Control.FOCUS_NONE
-	_share_pick.add_theme_font_size_override("font_size", 22)
-	box.add_child(_share_pick)
+	box.add_child(_dialog_label("Challenge friends:", C_TEXT, 22))
+
+	# Scrollable, multi-select friend list.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 220)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	_friends_list = VBoxContainer.new()
+	_friends_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_friends_list.add_theme_constant_override("separation", 4)
+	scroll.add_child(_friends_list)
+	_friends_list.add_child(_dialog_label("Loading friends…", C_TEXT.darkened(0.25), 20))
+
 	FirebaseSocial.friends_loaded.connect(_on_share_friends)
 	FirebaseSocial.refresh_friends()
 
 	var payload := _share_payload(tries)
-	_mk_button(box, "Send as Challenge", func(): _share_challenge(payload))
+	_mk_button(box, "Send Challenge", func(): _share_challenge(payload))
 	_mk_button(box, "Post to Profile", func(): _share_post(payload))
 	_mk_button(box, "Done", _close_share_dialog)
 
+func _dialog_label(text: String, color: Color, size_px: int) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_color_override("font_color", color)
+	l.add_theme_font_size_override("font_size", size_px)
+	return l
+
 func _on_share_friends(friends: Array) -> void:
-	if _share_pick == null:
+	if _friends_list == null:
 		return
-	_share_pick.clear()
+	for c: Node in _friends_list.get_children():
+		c.queue_free()
+	_friend_checks = []
+	if friends.is_empty():
+		_friends_list.add_child(_dialog_label("No friends yet — add some on the Friends screen.", C_TEXT.darkened(0.25), 20))
+		return
 	for f: Dictionary in friends:
-		_share_pick.add_item(str(f.get("displayName", "?")))
+		var cb := CheckBox.new()
+		cb.text = str(f.get("displayName", "?"))
+		cb.focus_mode = Control.FOCUS_NONE
+		cb.add_theme_font_size_override("font_size", 22)
+		cb.add_theme_color_override("font_color", C_TEXT)
+		_friends_list.add_child(cb)
+		_friend_checks.append({check = cb, uid = str(f.get("uid", ""))})
 
 func _share_challenge(payload: Dictionary) -> void:
-	var idx := _share_pick.selected
-	if idx < 0 or idx >= FirebaseSocial.friends.size():
-		_set_status("Pick a friend first", C_WARN)
+	var uids: Array = []
+	for entry: Dictionary in _friend_checks:
+		if entry.check.button_pressed:
+			uids.append(entry.uid)
+	if uids.is_empty():
+		_set_status("Pick at least one friend", C_WARN)
 		return
-	var friend: Dictionary = FirebaseSocial.friends[idx]
-	var ok: bool = await FirebaseSocial.create_challenge(friend.get("uid", ""), payload)
-	_set_status("Challenge sent to %s!" % friend.get("displayName", "?") if ok else "Challenge failed", C_ACCENT if ok else C_WARN)
-	if ok:
+	var sent: int = await FirebaseSocial.create_challenges(uids, payload)
+	if sent > 0:
+		_set_status("Challenge sent to %d %s!" % [sent, "friend" if sent == 1 else "friends"], C_ACCENT)
 		_close_share_dialog()
+	else:
+		_set_status("Challenge failed", C_WARN)
 
 func _share_post(payload: Dictionary) -> void:
 	var ok: bool = await FirebaseSocial.post_level_to_profile(payload)
@@ -596,7 +628,8 @@ func _close_share_dialog() -> void:
 	if _share_dialog != null:
 		_share_dialog.queue_free()
 		_share_dialog = null
-	_share_pick = null
+	_friends_list = null
+	_friend_checks = []
 
 func _go_back() -> void:
 	get_tree().change_scene_to_file("res://scenes/level_select.tscn")

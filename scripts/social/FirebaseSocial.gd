@@ -253,13 +253,21 @@ func create_challenge(to_user_id: String, payload: Dictionary) -> bool:
 	await refresh_challenges()
 	return true
 
-func respond_to_challenge(challenge_id: String, accept: bool) -> void:
+## Send the same challenge to several friends at once (the editor's multi-select
+## flow). Refreshes once at the end. Returns how many sends succeeded.
+func create_challenges(to_user_ids: Array, payload: Dictionary) -> int:
 	if not await ensure_signed_in():
-		return
-	await client.respond_to_challenge(challenge_id, accept)
+		return 0
+	var sent := 0
+	for uid: Variant in to_user_ids:
+		var res: Dictionary = await client.create_challenge(str(uid), payload)
+		if not res.is_empty():
+			sent += 1
 	await refresh_challenges()
+	return sent
 
-## `result` is advisory (e.g. {tries = 3}) — the backend decides the winner.
+## Mark a received challenge complete. `result` carries the recipient's attempt
+## count ({attempts}). No winner — challenges are complete/incomplete.
 func complete_challenge(challenge_id: String, result: Dictionary) -> void:
 	if not await ensure_signed_in():
 		return
@@ -269,11 +277,13 @@ func complete_challenge(challenge_id: String, result: Dictionary) -> void:
 # =============================================================================
 # Convenience splits for the UI
 # =============================================================================
-func incoming_challenges() -> Array:
+## Received, not-yet-completed challenges — the player can play these.
+func active_challenges() -> Array:
 	return challenges.filter(func(c: Dictionary) -> bool:
 		return c.get("toUserId", "") == auth.get("uid", "") and c.get("status", "") != "completed")
 
-func outgoing_challenges() -> Array:
+## Challenges the player sent that the recipient hasn't completed yet.
+func sent_challenges() -> Array:
 	return challenges.filter(func(c: Dictionary) -> bool:
 		return c.get("fromUserId", "") == auth.get("uid", "") and c.get("status", "") != "completed")
 
